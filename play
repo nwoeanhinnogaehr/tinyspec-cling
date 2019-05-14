@@ -1,0 +1,4 @@
+#!/bin/bash
+set -e
+RATE=44100
+./tinyspec | aplay -c2 -f FLOAT_LE -r $RATE
