@@ -6,8 +6,9 @@ via [cling](https://root.cern.ch/cling).
 ## Install
 Download an appropriate cling package from https://root.cern.ch/download/cling/
 and extract it to a directory called `cling_bin`.
+(If you're using Arch, the Ubuntu 16 package gives some warnings but basically seems to work.)
 
-If you're using Arch, the Ubuntu 16 package gives some warnings but basically seems to work.
+SDL2 is used for audio output. Please install an appropriate package for your system.
 
 Then, compile tinyspec with `./compile`.
 
@@ -15,15 +16,14 @@ Then, compile tinyspec with `./compile`.
 
 To run the server do:
 ```
-$ ./play
+$ ./tinyspec
 ```
 If all goes well you should see
 ```
-Playing raw data 'stdin' : Float 32 bit Little Endian, Rate 44100 Hz, Stereo
+Playing...
 ```
 There may be some warnings from cling afterwards, which may or may not be safe to ignore!
-If your `aplay` is not working, you might want edit the play script to send the output to a different audio player.
-`sox` can be used for format conversion.
+You won't hear anything yet, so read on to figure out how to use it.
 
 ## Editor setup
 The `send` program can be invoked on the command line to execute code on the server.
