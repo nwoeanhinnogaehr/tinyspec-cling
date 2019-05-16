@@ -55,7 +55,8 @@ extern "C" int synth_main(cplx *buf[2], int n, double t) {
             sin(t+pow(i,1+sin(t)*0.6))/2 // Fun little formula
             /i; // Scale magnitude by bin number to prevent loud high frequency noises.
     }
-    return 10; // Return value is FFT size for next frame.
+    return 10; // Return value is log2 FFT size for next frame
+    // i.e. the value of n in the next call will be 2^9
 }
 ```
 See the hacks directory for some other examples.
