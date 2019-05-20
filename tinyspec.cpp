@@ -12,6 +12,7 @@
 #include<fcntl.h>
 #include<SDL2/SDL.h>
 #include<SDL2/SDL_audio.h>
+#include<fftw3.h>
 #include"cling/Interpreter/Interpreter.h"
 #include"cling/Utils/Casting.h"
 using namespace std;
@@ -25,7 +26,7 @@ const int BUFFER_SIZE = 1024;
 
 int fft_size;
 atomic<int> new_fft_size(1<<12); // initial size
-vector<cplx> fft_out, fft_in;
+cplx *fft_out = nullptr, *fft_in = nullptr;
 vector<float> abuf, atmp;
 
 void set_next_size(int n) {
@@ -55,7 +56,7 @@ void init_cling(int argc, char **argv) {
     string code;
     while (true) { // read code from fifo and execute it
         int n = read(fd, codebuf, buf_size);
-        if (n == 0) sleep(0); // hack to avoid spinning too hard
+        if (n == 0) usleep(100000); // hack to avoid spinning too hard
         code += string(codebuf, n);
         int begin = code.find(CODE_BEGIN);
         int end = code.find(CODE_END);
@@ -99,46 +100,34 @@ void fill(cplx *buf[2], int n, double t) {
         fptr.load()(buf, n, t);
 }
 
-// FFT author: Zachary Friggstad
-void fft(cplx *in, cplx *v, int n, bool inverse) {
-    assert(n > 0 && (n&(n-1)) == 0);
-    for (int i = 0; i < n; ++i) {
-        int r = 0, k = i;
-        for (int j = 1; j < n; j <<= 1, r = (r<<1)|(k&1), k >>= 1);
-        v[i] = in[r];
-    }
-    for (int m = 2; m <= n; m <<= 1) {
-        int mm = m>>1;
-        cplx zeta = polar<double>(1, (inverse?2:-2)*M_PI/m);
-        for (int k = 0; k < n; k += m) {
-            cplx om = 1;
-            for (int j = 0; j < mm; ++j, om *= zeta) {
-                cplx tl = v[k+j], th = om*v[k+j+mm];
-                v[k+j] = tl+th;
-                v[k+j+mm] = tl-th;
-            }
-        }
-    }
-}
-
 SDL_AudioDeviceID adev;
 queue<float> aqueue;
 double time_secs = 0;
+fftw_plan plan_left;
+fftw_plan plan_right;
 
 void generate_frame() {
-    if (int new_size_copy = new_fft_size) {
+    int new_size_copy = new_fft_size;
+    if (new_size_copy != fft_size) {
         fft_size = new_size_copy;
-        fft_out.resize(2*fft_size);
-        fft_in.resize(2*fft_size);
+        if (fft_out) fftw_free(fft_out);
+        fft_out = (cplx*) fftw_malloc(sizeof(cplx) * fft_size*2);
+        fft_in = (cplx*) fftw_malloc(sizeof(cplx) * fft_size*2);
+        plan_left = fftw_plan_dft_1d(fft_size,
+                (fftw_complex*) fft_in, (fftw_complex*) fft_out,
+                FFTW_BACKWARD, FFTW_ESTIMATE);
+        plan_right = fftw_plan_dft_1d(fft_size,
+                (fftw_complex*) fft_in+fft_size, (fftw_complex*) fft_out+fft_size,
+                FFTW_BACKWARD, FFTW_ESTIMATE);
         abuf.resize(fft_size);
         atmp.resize(fft_size);
-        new_fft_size = 0; // might have ignored some writes, meh
     }
-    memset(&fft_in[0], 0, fft_in.size()*sizeof(cplx));
-    cplx* fft_buf[2] = {&fft_in[0], &fft_in[0]+fft_size};
+    memset(fft_in, 0, fft_size*2*sizeof(cplx));
+    cplx* fft_buf[2] = {fft_in, fft_in+fft_size};
     fill(fft_buf, fft_size/2, time_secs);
+    fftw_execute(plan_left);
+    fftw_execute(plan_right);
     for (int c = 0; c < 2; c++) {
-        fft(&fft_in[0]+c*fft_size, &fft_out[0]+c*fft_size, fft_size, true);
         for (int i = 0; i < fft_size/4; i++) {
             abuf[i*2+c] = (fft_out[i+c*fft_size].real()*(i/(fft_size/4.0))+atmp[i*2+c+fft_size/4]);
             atmp[i*2+c+fft_size/4] = fft_out[i+c*fft_size+fft_size/4].real()*(1.0-i/(fft_size/4.0));

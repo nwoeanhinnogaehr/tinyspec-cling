@@ -8,7 +8,7 @@ Download an appropriate cling package from https://root.cern.ch/download/cling/
 and extract it to a directory called `cling_bin`.
 (If you're using Arch, the Ubuntu 16 package gives some warnings but basically seems to work.)
 
-SDL2 is used for audio output. Please install an appropriate package for your system.
+SDL2 is used for audio output, and FFTW3 is required for synthesis. Please install appropriate packages for both.
 
 Then, compile tinyspec with `./compile`.
 
