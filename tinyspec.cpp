@@ -111,6 +111,7 @@ void generate_frame() {
     if (new_size_copy != fft_size) {
         fft_size = new_size_copy;
         if (fft_out) fftw_free(fft_out);
+        if (fft_in) fftw_free(fft_in);
         fft_out = (cplx*) fftw_malloc(sizeof(cplx) * fft_size*2);
         fft_in = (cplx*) fftw_malloc(sizeof(cplx) * fft_size*2);
         plan_left = fftw_plan_dft_1d(fft_size,
