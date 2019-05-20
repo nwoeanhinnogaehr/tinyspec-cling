@@ -24,7 +24,7 @@ const char *SYNTH_MAIN = "synth_main";
 const int BUFFER_SIZE = 1024;
 
 int fft_size;
-int new_fft_size = 1<<12; // initial size
+atomic<int> new_fft_size(1<<12); // initial size
 vector<cplx> fft_out, fft_in;
 vector<float> abuf, atmp;
 
@@ -126,13 +126,13 @@ queue<float> aqueue;
 double time_secs = 0;
 
 void generate_frame() {
-    if (new_fft_size != 0) {
-        fft_size = new_fft_size;
+    if (int new_size_copy = new_fft_size) {
+        fft_size = new_size_copy;
         fft_out.resize(2*fft_size);
         fft_in.resize(2*fft_size);
         abuf.resize(fft_size);
         atmp.resize(fft_size);
-        new_fft_size = 0;
+        new_fft_size = 0; // might have ignored some writes, meh
     }
     memset(&fft_in[0], 0, fft_in.size()*sizeof(cplx));
     cplx* fft_buf[2] = {&fft_in[0], &fft_in[0]+fft_size};
