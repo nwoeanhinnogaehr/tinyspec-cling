@@ -28,6 +28,11 @@ int fft_size;
 atomic<int> new_fft_size(1<<12); // initial size
 cplx *fft_out = nullptr, *fft_in = nullptr;
 vector<float> abuf, atmp;
+SDL_AudioDeviceID adev;
+queue<float> aqueue;
+double time_secs = 0;
+fftw_plan plan_left;
+fftw_plan plan_right;
 
 void set_next_size(int n) {
     new_fft_size = n;
@@ -94,18 +99,6 @@ void init_cling(int argc, char **argv) {
     }
 }
 
-// fill one buffer for the FFT
-void fill(cplx *buf[2], int n, double t) {
-    if (fptr)
-        fptr.load()(buf, n, t);
-}
-
-SDL_AudioDeviceID adev;
-queue<float> aqueue;
-double time_secs = 0;
-fftw_plan plan_left;
-fftw_plan plan_right;
-
 void generate_frame() {
     int new_size_copy = new_fft_size;
     if (new_size_copy != fft_size) {
@@ -125,7 +118,8 @@ void generate_frame() {
     }
     memset(fft_in, 0, fft_size*2*sizeof(cplx));
     cplx* fft_buf[2] = {fft_in, fft_in+fft_size};
-    fill(fft_buf, fft_size/2, time_secs);
+    if (fptr) // call synthesis function
+        fptr.load()(fft_buf, fft_size/2, time_secs);
     fftw_execute(plan_left);
     fftw_execute(plan_right);
     for (int c = 0; c < 2; c++) {
