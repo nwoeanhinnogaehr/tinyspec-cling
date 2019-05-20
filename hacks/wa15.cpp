@@ -3,9 +3,9 @@ vector<cplx> cfeed[2];
 
 fill(feed[0].begin(),feed[0].end(),0); fill(feed[1].begin(),feed[1].end(),0);
 
-extern "C" int synth_main(cplx*buf[2],int n,double t){ return 0; } //hush
+extern "C" void synth_main(cplx*buf[2],int n,double t){ } //hush
 
-extern "C" int synth_main(cplx*buf[2],int n,double t){
+extern "C" void synth_main(cplx*buf[2],int n,double t){
     for (int c = 0; c < 2; c++) {
         feed[c].resize(n,0);
         for (int i = 1; i < n; i++) {
@@ -17,10 +17,10 @@ extern "C" int synth_main(cplx*buf[2],int n,double t){
             buf[c][i] = (exp(cplx(0.0,M_PI/64.0*feed[c][i])))/pow(i+1, 0.7)/2.0;
         }
     }
-    return 11;
+    set_next_size(1<<11);
 }
 
-extern "C" int synth_main(cplx*buf[2],int n,double t){
+extern "C" void synth_main(cplx*buf[2],int n,double t){
     for (int c = 0; c < 2; c++) {
         feed[c].resize(n,0);
         for (int i = 1; i < n; i++) {
@@ -30,10 +30,10 @@ extern "C" int synth_main(cplx*buf[2],int n,double t){
             buf[c][i] = (exp(cplx(0.0,pow(i,1.2)*M_PI/32.0*feed[c][i]/(i+1))))/pow(i+1, 0.8)/2.0;
         }
     }
-    return 16;
+    set_next_size(1<<16);
 }
 
-extern "C" int synth_main(cplx*buf[2],int n,double t){
+extern "C" void synth_main(cplx*buf[2],int n,double t){
     for (int c = 0; c < 2; c++) {
         feed[c].resize(n,0);
         for (int i = 1; i < n; i++) {
@@ -44,10 +44,10 @@ extern "C" int synth_main(cplx*buf[2],int n,double t){
             buf[c][i] = (exp(cplx(0.0,pow(i,1.01)*M_PI/32.0*feed[c][i]/(i+1))))/pow(i+1, 0.8)/2.0;
         }
     }
-    return 10;
+    set_next_size(1<<10);
 }
 
-extern "C" int synth_main(cplx*buf[2],int n,double t){
+extern "C" void synth_main(cplx*buf[2],int n,double t){
     for (int c = 0; c < 2; c++) {
         for (int i = 1; i < n; i++) {
             int r = int(t*32)*n+i;
@@ -56,10 +56,10 @@ extern "C" int synth_main(cplx*buf[2],int n,double t){
             buf[c][i]=sin(2.0*M_PI/32.*(c+((int)pow(r,1.1))|r/768|r/256|r/512|r/1280|feed[c][i]))/pow(i+1, 0.9);
         }
     }
-    return 10;
+    set_next_size(1<<10);
 }
 
-extern "C" int synth_main(cplx*buf[2],int n,double t){
+extern "C" void synth_main(cplx*buf[2],int n,double t){
     for (int c = 0; c < 2; c++) {
         feed[c].resize(n,0);
         for (int i = 1; i < n; i++) {
@@ -70,10 +70,10 @@ extern "C" int synth_main(cplx*buf[2],int n,double t){
             buf[c][i] = (exp(cplx(0.0,pow(i,0.01)*M_PI/32.0*feed[c][i]/(i+1))))/pow(i+1, 0.7)/2.0;
         }
     }
-    return 12;
+    set_next_size(1<<12);
 }
 
-extern "C" int synth_main(cplx*buf[2],int n,double t){
+extern "C" void synth_main(cplx*buf[2],int n,double t){
     for (int c = 0; c < 2; c++) {
         cfeed[c].resize(n,0);
         for (int i = 1; i < n; i++) {
@@ -82,5 +82,5 @@ extern "C" int synth_main(cplx*buf[2],int n,double t){
             cfeed[c][i]+=buf[c][i].real()*i;
         }
     }
-    return 12;
+    set_next_size(1<<12);
 }

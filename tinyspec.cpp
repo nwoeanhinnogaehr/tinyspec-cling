@@ -28,7 +28,11 @@ int new_fft_size = 1<<12; // initial size
 vector<cplx> fft_out, fft_in;
 vector<float> abuf, atmp;
 
-using func_t = int(cplx *buf[2], int, double);
+void set_next_size(int n) {
+    new_fft_size = n;
+}
+
+using func_t = void(cplx *buf[2], int, double);
 atomic<func_t*> fptr(nullptr);
 void init_cling(int argc, char **argv) {
     cling::Interpreter interp(argc, argv, LLVMRESDIR,
@@ -40,6 +44,7 @@ void init_cling(int argc, char **argv) {
             "#include<vector>\n"
             "using namespace std;\n"
             "using cplx=complex<double>;\n");
+    interp.declare("void set_next_size(int n);");
 
     // make a fifo called "cmd", which commands are read from
     mkfifo("cmd", 0700);
@@ -91,7 +96,7 @@ void init_cling(int argc, char **argv) {
 // fill one buffer for the FFT
 void fill(cplx *buf[2], int n, double t) {
     if (fptr)
-        new_fft_size = 1<<fptr.load()(buf, n, t);
+        fptr.load()(buf, n, t);
 }
 
 // FFT author: Zachary Friggstad

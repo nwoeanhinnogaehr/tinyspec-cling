@@ -48,14 +48,14 @@ For example, try executing the following code.
 // The 0th bin is the DC offset. Usually this should be left at a value of 0.
 // The 1st bin is the lowest frequency, and the n-1th is the highest frequency.
 // buf is zeroed out before this function is called.
-extern "C" int synth_main(cplx *buf[2], int n, double t) {
+extern "C" void synth_main(cplx *buf[2], int n, double t) {
     // Loop over frequency bins. Starting at 1 skips the DC offset.
     for (int i = 1; i < n; i++) {
         buf[0][i] = buf[1][i] = // Set both left and right channels
             sin(t+pow(i,1+sin(t)*0.6))/2 // Fun little formula
             /i; // Scale magnitude by bin number to prevent loud high frequency noises.
     }
-    return 10; // Return value is log2 FFT size for next frame
+    set_next_size(1<<10); // Set FFT size for the next frame
     // i.e. the value of n in the next call will be 2^9
 }
 ```
