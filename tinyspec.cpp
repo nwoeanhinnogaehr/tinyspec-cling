@@ -60,8 +60,9 @@ void init_cling(int argc, char **argv) {
     interp.declare("void set_next_size(int n, float hop_ratio=0.25);");
 
     // make a fifo called "cmd", which commands are read from
-    mkfifo("cmd", 0700);
-    int fd = open("cmd", O_RDONLY);
+    const char *command_file = argc > 1 ? argv[1] : "cmd";
+    mkfifo(command_file, 0700);
+    int fd = open(command_file, O_RDONLY);
 
     const size_t CODE_BUF_SIZE = 1<<12;
     char codebuf[CODE_BUF_SIZE];

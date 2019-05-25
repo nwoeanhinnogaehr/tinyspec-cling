@@ -3,7 +3,8 @@
 #include <fcntl.h>
 
 int main(int argc, char** argv) {
-    int fd = open("cmd", O_WRONLY);
+    const char *filename = argc > 1 ? argv[1] : "cmd";
+    int fd = open(filename, O_WRONLY);
     int c;
     const char *meta = "<<<>>>";
     write(fd, meta, 3);
