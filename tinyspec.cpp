@@ -26,16 +26,23 @@ const int BUFFER_SIZE = 1024;
 
 int fft_size;
 atomic<int> new_fft_size(1<<12); // initial size
+atomic<int> hop(new_fft_size/2);
 cplx *fft_out = nullptr, *fft_in = nullptr;
-vector<float> abuf, atmp;
+vector<float> abuf, window;
 SDL_AudioDeviceID adev;
 queue<float> aqueue;
+deque<float> atmp;
 double time_secs = 0;
 fftw_plan plan_left;
 fftw_plan plan_right;
 
-void set_next_size(int n) {
+void set_next_size(int n, float hop_ratio=0.25) {
     new_fft_size = n;
+    hop = int(n*hop_ratio);
+    if (hop <= 0) {
+        cerr << "ignoring invalid hop: " << hop << endl;
+        hop = n/4;
+    }
 }
 
 using func_t = void(cplx *buf[2], int, double);
@@ -50,17 +57,17 @@ void init_cling(int argc, char **argv) {
             "#include<vector>\n"
             "using namespace std;\n"
             "using cplx=complex<double>;\n");
-    interp.declare("void set_next_size(int n);");
+    interp.declare("void set_next_size(int n, float hop_ratio=0.25);");
 
     // make a fifo called "cmd", which commands are read from
     mkfifo("cmd", 0700);
     int fd = open("cmd", O_RDONLY);
 
-    const size_t buf_size = 1<<12;
-    char codebuf[buf_size];
+    const size_t CODE_BUF_SIZE = 1<<12;
+    char codebuf[CODE_BUF_SIZE];
     string code;
     while (true) { // read code from fifo and execute it
-        int n = read(fd, codebuf, buf_size);
+        int n = read(fd, codebuf, CODE_BUF_SIZE);
         if (n == 0) usleep(100000); // hack to avoid spinning too hard
         code += string(codebuf, n);
         int begin = code.find(CODE_BEGIN);
@@ -114,7 +121,9 @@ void generate_frame() {
                 (fftw_complex*) fft_in+fft_size, (fftw_complex*) fft_out+fft_size,
                 FFTW_BACKWARD, FFTW_ESTIMATE);
         abuf.resize(fft_size);
-        atmp.resize(fft_size);
+        window.resize(fft_size);
+        for (int i = 0; i < fft_size; i++)
+            window[i] = i<=fft_size/2 ? i/(fft_size/2.0) : (fft_size-i-1)/(fft_size/2.0);
     }
     memset(fft_in, 0, fft_size*2*sizeof(cplx));
     cplx* fft_buf[2] = {fft_in, fft_in+fft_size};
@@ -122,16 +131,32 @@ void generate_frame() {
         fptr.load()(fft_buf, fft_size/2, time_secs);
     fftw_execute(plan_left);
     fftw_execute(plan_right);
-    for (int c = 0; c < 2; c++) {
-        for (int i = 0; i < fft_size/4; i++) {
-            abuf[i*2+c] = (fft_out[i+c*fft_size].real()*(i/(fft_size/4.0))+atmp[i*2+c+fft_size/4]);
-            atmp[i*2+c+fft_size/4] = fft_out[i+c*fft_size+fft_size/4].real()*(1.0-i/(fft_size/4.0));
+
+    int hop_fix = hop; // fix current value of hop
+    // output region that overlaps with previous frame(s)
+    for (int i = 0; i < min(hop_fix, fft_size); i++) {
+        for (int c = 0; c < 2; c++) {
+            float overlap = 0;
+            if (!atmp.empty()) {
+                overlap = atmp.front();
+                atmp.pop_front();
+            }
+            aqueue.push(overlap + fft_out[i+c*fft_size].real()*window[i]);
         }
     }
-    for (int i = 0; i < fft_size/2; i++)
-        aqueue.push(abuf[i]);
+    // if the hop is larger than the frame size, insert silence
+    for (int i = 0; i < 2*(hop_fix-fft_size); i++)
+        aqueue.push(0);
+    // save region that overlaps with next frame
+    for (int i = 0; i < fft_size-hop_fix; i++) {
+        for (int c = 0; c < 2; c++) {
+            float out_val = fft_out[hop_fix+i+c*fft_size].real()*window[i+hop_fix];
+            if (i*2+c < (int)atmp.size()) atmp[i*2+c] += out_val;
+            else atmp.push_back(out_val);
+        }
+    }
 
-    time_secs += fft_size/(double)RATE/4;
+    time_secs += hop_fix/(double)RATE;
 }
 
 void audio_cb(void *, uint8_t *stream, int len) {
