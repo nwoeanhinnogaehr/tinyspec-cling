@@ -45,6 +45,14 @@ void set_next_size(int n, float hop_ratio=0.25) {
     }
 }
 
+void set_hop_hz(float hz) {
+    hop = double(RATE)/hz;
+    if (hop <= 0) {
+        cerr << "ignoring invalid hop: " << hop << endl;
+        hop = fft_size/4;
+    }
+}
+
 using func_t = void(cplx *buf[2], int, double);
 atomic<func_t*> fptr(nullptr);
 void init_cling(int argc, char **argv) {
@@ -58,6 +66,7 @@ void init_cling(int argc, char **argv) {
             "using namespace std;\n"
             "using cplx=complex<double>;\n");
     interp.declare("void set_next_size(int n, float hop_ratio=0.25);");
+    interp.declare("void set_hop_hz(float hz);");
 
     // make a fifo called "cmd", which commands are read from
     const char *command_file = argc > 1 ? argv[1] : "cmd";
