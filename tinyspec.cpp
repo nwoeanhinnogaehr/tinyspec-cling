@@ -9,13 +9,17 @@
 #include<atomic>
 #include<queue>
 #include<sys/stat.h>
+#include<sys/time.h>
 #include<fcntl.h>
 #include<SDL2/SDL.h>
 #include<SDL2/SDL_audio.h>
 #include<fftw3.h>
 #include"cling/Interpreter/Interpreter.h"
 #include"cling/Utils/Casting.h"
+#include"oscpkt/oscpkt.hh"
+#include"oscpkt/udp.hh"
 using namespace std;
+using namespace oscpkt;
 typedef complex<double> cplx;
 
 const char *LLVMRESDIR = "cling_bin"; // path to cling resource directory
@@ -36,10 +40,37 @@ double time_secs = 0;
 fftw_plan plan_left;
 fftw_plan plan_right;
 
+// osc stuff
+// TODO: this could race
+UdpSocket sock;
+struct timeval init_time;
+void osc_init(const string &address, int port) {
+    sock.connectTo(address, port);
+    if (!sock.isOk())
+        cerr << "Error connecting: " << sock.errorMessage() << endl;
+    else
+        cerr << "OSC connected ok!" << endl;
+}
+void _osc_sched(double t, Message *msg) {
+    uint64_t timestamp = ((init_time.tv_sec + 2208988800u + uint64_t(t)) << 32)
+        + 4294.967296*(init_time.tv_usec + fmod(t, 1.0)*1000000);
+    PacketWriter pw;
+    pw.startBundle(TimeTag(timestamp)).addMessage(*msg).endBundle();
+    if (!sock.sendPacket(pw.packetData(), pw.packetSize()))
+        cerr << "Send error: " << sock.errorMessage() << endl;
+    delete msg;
+}
+Message *_osc_new_msg(const string &path) { return new oscpkt::Message(path); }
+void _osc_push(Message *m, int32_t v) { m->pushInt32(v); }
+void _osc_push(Message *m, int64_t v) { m->pushInt64(v); }
+void _osc_push(Message *m, float v) { m->pushFloat(v); }
+void _osc_push(Message *m, double v) { m->pushDouble(v); }
+void _osc_push(Message *m, const string &v) { m->pushStr(v); }
+
 void set_next_size(int n, float hop_ratio=0.25) {
     new_fft_size = n;
     hop = int(n*hop_ratio);
-    if (hop <= 0) {
+    if (n && hop <= 0) {
         cerr << "ignoring invalid hop: " << hop << endl;
         hop = n/4;
     }
@@ -63,6 +94,7 @@ void init_cling(int argc, char **argv) {
             "#include<complex>\n"
             "#include<iostream>\n"
             "#include<vector>\n"
+            "#include\"osc_rt.h\"\n"
             "using namespace std;\n"
             "using cplx=complex<double>;\n");
     interp.declare("void set_next_size(int n, float hop_ratio=0.25);");
@@ -120,27 +152,31 @@ void generate_frame() {
     int new_size_copy = new_fft_size;
     if (new_size_copy != fft_size) {
         fft_size = new_size_copy;
-        if (fft_out) fftw_free(fft_out);
-        if (fft_in) fftw_free(fft_in);
-        fft_out = (cplx*) fftw_malloc(sizeof(cplx) * fft_size*2);
-        fft_in = (cplx*) fftw_malloc(sizeof(cplx) * fft_size*2);
-        plan_left = fftw_plan_dft_1d(fft_size,
-                (fftw_complex*) fft_in, (fftw_complex*) fft_out,
-                FFTW_BACKWARD, FFTW_ESTIMATE);
-        plan_right = fftw_plan_dft_1d(fft_size,
-                (fftw_complex*) fft_in+fft_size, (fftw_complex*) fft_out+fft_size,
-                FFTW_BACKWARD, FFTW_ESTIMATE);
-        abuf.resize(fft_size);
-        window.resize(fft_size);
-        for (int i = 0; i < fft_size; i++)
-            window[i] = i<=fft_size/2 ? i/(fft_size/2.0) : (fft_size-i-1)/(fft_size/2.0);
+        if (fft_size) {
+            if (fft_out) fftw_free(fft_out);
+            if (fft_in) fftw_free(fft_in);
+            fft_out = (cplx*) fftw_malloc(sizeof(cplx) * fft_size*2);
+            fft_in = (cplx*) fftw_malloc(sizeof(cplx) * fft_size*2);
+            plan_left = fftw_plan_dft_1d(fft_size,
+                    (fftw_complex*) fft_in, (fftw_complex*) fft_out,
+                    FFTW_BACKWARD, FFTW_ESTIMATE);
+            plan_right = fftw_plan_dft_1d(fft_size,
+                    (fftw_complex*) fft_in+fft_size, (fftw_complex*) fft_out+fft_size,
+                    FFTW_BACKWARD, FFTW_ESTIMATE);
+            abuf.resize(fft_size);
+            window.resize(fft_size);
+            for (int i = 0; i < fft_size; i++)
+                window[i] = i<=fft_size/2 ? i/(fft_size/2.0) : (fft_size-i-1)/(fft_size/2.0);
+        }
     }
     memset(fft_in, 0, fft_size*2*sizeof(cplx));
     cplx* fft_buf[2] = {fft_in, fft_in+fft_size};
     if (fptr) // call synthesis function
         fptr.load()(fft_buf, fft_size/2, time_secs);
-    fftw_execute(plan_left);
-    fftw_execute(plan_right);
+    if (fft_size) {
+        fftw_execute(plan_left);
+        fftw_execute(plan_right);
+    }
 
     int hop_fix = hop; // fix current value of hop
     // output region that overlaps with previous frame(s)
@@ -200,6 +236,7 @@ void init_audio() {
 }
 
 int main(int argc, char **argv) {
+    gettimeofday(&init_time, NULL);
     init_audio();
     init_cling(argc, argv);
 }
