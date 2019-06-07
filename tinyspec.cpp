@@ -42,16 +42,16 @@ fftw_plan plan_right;
 
 // osc stuff
 // TODO: this could race
-UdpSocket sock;
+unordered_map<string, UdpSocket> socks;
 struct timeval init_time;
-void osc_init(const string &address, int port) {
-    sock.connectTo(address, port);
-    if (!sock.isOk())
-        cerr << "Error connecting: " << sock.errorMessage() << endl;
-    else
-        cerr << "OSC connected ok!" << endl;
-}
-void _osc_sched(double t, Message *msg) {
+void _osc_send(const string &address, int port, double t, Message *msg) {
+    auto res = socks.emplace(address+":"+to_string(port), UdpSocket());
+    UdpSocket &sock = res.first->second;
+    if (res.second) {
+        sock.connectTo(address, port);
+        if (!sock.isOk()) cerr << "Error connecting: " << sock.errorMessage() << endl;
+        else cerr << "Connect ok!" << endl;
+    }
     uint64_t timestamp = ((init_time.tv_sec + 2208988800u + uint64_t(t)) << 32)
         + 4294.967296*(init_time.tv_usec + fmod(t, 1.0)*1000000);
     PacketWriter pw;

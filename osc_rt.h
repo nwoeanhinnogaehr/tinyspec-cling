@@ -1,7 +1,7 @@
 namespace oscpkt {
     class Message;
 }
-void _osc_sched(double t, oscpkt::Message *msg);
+void _osc_send(const std::string &address, int port, double t, oscpkt::Message *msg);
 oscpkt::Message *_osc_new_msg(const std::string& path);
 void _osc_push(oscpkt::Message *m, int32_t v);
 void _osc_push(oscpkt::Message *m, int64_t v);
@@ -15,10 +15,9 @@ void _osc_push_all(oscpkt::Message *msg, T1 param1, T...params) {
     _osc_push_all(msg, params...);
 }
 
-void osc_init(const std::string &address, int port);
 template<typename...T>
-void osc_send(double t, const std::string &path, T...params) {
+void osc_send(const std::string &address, int port, double t, const std::string &path, T...params) {
     oscpkt::Message *msg = _osc_new_msg(path);
     _osc_push_all(msg, params...);
-    _osc_sched(t, msg);
+    _osc_send(address, port, t, msg);
 }
