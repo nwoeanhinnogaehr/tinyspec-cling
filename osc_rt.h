@@ -1,3 +1,4 @@
+#include<memory>
 namespace oscpkt {
     class Message;
 }
@@ -21,3 +22,21 @@ void osc_send(const std::string &address, int port, double t, const std::string 
     _osc_push_all(msg, params...);
     _osc_send(address, port, t, msg);
 }
+
+struct RecvMsg {
+    void *ar;
+    oscpkt::Message *msg;
+    ~RecvMsg();
+};
+bool _osc_pop(RecvMsg &m, int32_t &v);
+bool _osc_pop(RecvMsg &m, int64_t &v);
+bool _osc_pop(RecvMsg &m, float &v);
+bool _osc_pop(RecvMsg &m, double &v);
+bool _osc_pop(RecvMsg &m, std::string &v);
+
+bool osc_get(RecvMsg&) { return true; }
+template<typename T1, typename...T>
+bool osc_get(RecvMsg &msg, T1 &v1, T&... v) {
+    return _osc_pop(msg, v1) && osc_get(msg, v...);
+}
+std::vector<std::shared_ptr<RecvMsg>> osc_recv(int port, double t, const std::string &path);

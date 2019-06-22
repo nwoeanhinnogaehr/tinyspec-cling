@@ -55,9 +55,38 @@ extern "C" void synth_main(cplx *buf[2], int n, double t) {
             sin(t+pow(i,1+sin(t)*0.6))/2 // Fun little formula
             /i; // Scale magnitude by bin number to prevent loud high frequency noises.
     }
-    set_next_size(1<<10); // Set FFT size for the next frame
+    next_hop_ratio(1<<10); // Set FFT size for the next frame
     // i.e. the value of n in the next call will be 2^9
 }
 ```
+
+Here, `cplx` is just an alias for `std::complex<double>`.
+
+Note the call to `next_hop_ratio` at the end---this is one of 3 built in functions that can be used to
+manipulate the parameters of the FFT synthesizer.
+
+`void next_hop_ratio(uint32_t n, double hop_ratio=0.25)`:
+Set the FFT size for the next frame to `n` and advance the output by `n*hop_ratio` samples.
+
+`void next_hop_samples(uint32_t n, uint32_t hop)`:
+Set the FFT size for the next frame to `n` and advance the output by `hop` samples.
+
+`void next_hop_hz(uint32_t n, double hz)`:
+Set the FFT size for the next frame to `n` and advance the output such that the rate of
+frame generation is `hz` Hz. That is, advance by `RATE/hz` samples.
+
 See the hacks directory for some other examples.
 Even more examples---which may require adaptation for this fork---are available as part of [tinyspec](https://github.com/nwoeanhinnogaehr/tinyspec).
+
+## OSC support
+
+There is currently experimental support for sending/receiving Open Sound Control messages.
+See `hacks/osc.cpp` for details.
+
+## Running multiple instances
+
+If you want to run multiple instances on Linux, you can tell SDL to use JACK for output:
+
+```
+SDL_AUDIODRIVER=jack ./tinyspec
+```

@@ -17,6 +17,5 @@ extern "C" void synth_main(cplx*buf[2],int n,double t){
     // Fourth is the OSC path.
     // Everything following is OSC params, which can be int32, int64, float, double, or string.
     osc_send("localhost", 57120, t+0.5, "/play2", "sound", "blip", "speed", ((s&s/8)%16)/8.0+0.5);
-    set_next_size(0); // 0 disables synthesis
-    set_hop_hz(16); // set rate
+    next_hop_hz(0,16); // set rate
 }
