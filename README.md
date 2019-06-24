@@ -85,7 +85,7 @@ See `hacks/osc.cpp` for details.
 
 ## Running multiple instances
 
-If you want to run multiple instances on Linux, you can tell SDL to use JACK for output:
+If you want to run multiple instances on Linux and have separate routable output from each, you can tell SDL to use JACK for output:
 
 ```
 SDL_AUDIODRIVER=jack ./tinyspec
