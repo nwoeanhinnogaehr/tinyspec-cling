@@ -6,126 +6,40 @@
 #include<vector>
 #include<string>
 #include<iostream>
-#include<atomic>
 #include<queue>
-#include<list>
+#include<mutex>
+#include<condition_variable>
+#include<thread>
 #include<sys/stat.h>
 #include<sys/time.h>
 #include<fcntl.h>
-#include<SDL2/SDL.h>
-#include<SDL2/SDL_audio.h>
+#include<jack/jack.h>
 #include<fftw3.h>
 #include"cling/Interpreter/Interpreter.h"
 #include"cling/Utils/Casting.h"
-#include"oscpkt/oscpkt.hh"
-#include"oscpkt/udp.hh"
+#include"osc.h"
 using namespace std;
-using namespace oscpkt;
 typedef complex<double> cplx;
 
 const char *LLVMRESDIR = "cling_bin"; // path to cling resource directory
 const char *CODE_BEGIN = "<<<";
 const char *CODE_END = ">>>";
-const char *SYNTH_MAIN = "synth_main";
-const int BUFFER_SIZE = 1024;
+const char *SYNTH_MAIN = "process";
 
 int fft_size;
-atomic<int> new_fft_size(1<<12); // initial size
-atomic<int> hop(new_fft_size/2);
+int new_fft_size(1<<12); // initial size
+int hop(new_fft_size/2);
 cplx *fft_out = nullptr, *fft_in = nullptr;
-vector<float> abuf, window;
-SDL_AudioDeviceID adev;
-queue<float> aqueue;
-deque<float> atmp;
-double time_secs = 0;
-fftw_plan plan_left;
-fftw_plan plan_right;
-
-// OSC stuff
-// If this looks ridiculous it's because I had to work around a very odd cling bug.
-// Eventually I will write my own OSC lib to avoid this mess.
-// TODO: this could race
-unordered_map<string, UdpSocket> socks;
-struct timeval init_time;
-uint64_t to_timestamp(double t) {
-    return ((init_time.tv_sec + 2208988800u + uint64_t(t)) << 32)
-        + 4294.967296*(init_time.tv_usec + fmod(t, 1.0)*1000000);
-}
-void _osc_send(const string &address, int port, double t, Message *msg) {
-    auto res = socks.emplace(address+":"+to_string(port), UdpSocket());
-    UdpSocket &sock = res.first->second;
-    if (res.second) {
-        sock.connectTo(address, port);
-        if (!sock.isOk()) cerr << "Error connecting: " << sock.errorMessage() << endl;
-        else cerr << "Connect ok!" << endl;
-    }
-    uint64_t timestamp = to_timestamp(t);
-    PacketWriter pw;
-    pw.startBundle(TimeTag(timestamp)).addMessage(*msg).endBundle();
-    if (!sock.sendPacket(pw.packetData(), pw.packetSize()))
-        cerr << "Send error: " << sock.errorMessage() << endl;
-    delete msg;
-}
-Message *_osc_new_msg(const string &path) { return new oscpkt::Message(path); }
-void _osc_push(Message *m, int32_t v) { m->pushInt32(v); }
-void _osc_push(Message *m, int64_t v) { m->pushInt64(v); }
-void _osc_push(Message *m, float v) { m->pushFloat(v); }
-void _osc_push(Message *m, double v) { m->pushDouble(v); }
-void _osc_push(Message *m, const string &v) { m->pushStr(v); }
-
-struct RecvMsg {
-    void *ar;
-    Message *msg;
-    RecvMsg(void *ar, Message *msg) : ar(ar), msg(msg) { }
-    ~RecvMsg();
-};
-RecvMsg::~RecvMsg() {
-    delete (Message::ArgReader*) ar;
-    delete msg;
-}
-bool _osc_pop(RecvMsg &m, int32_t &v) { return ((Message::ArgReader*)m.ar)->popInt32(v); }
-bool _osc_pop(RecvMsg &m, int64_t &v) { return ((Message::ArgReader*)m.ar)->popInt64(v); }
-bool _osc_pop(RecvMsg &m, float &v) { return ((Message::ArgReader*)m.ar)->popFloat(v); }
-bool _osc_pop(RecvMsg &m, double &v) { return ((Message::ArgReader*)m.ar)->popDouble(v); }
-bool _osc_pop(RecvMsg &m, string &v) { return ((Message::ArgReader*)m.ar)->popStr(v); }
-
-struct Server {
-    UdpSocket sock;
-    list<Message> queue;
-};
-unordered_map<int, Server> servers;
-vector<shared_ptr<RecvMsg>> osc_recv(int port, double t, const string &path) {
-    uint64_t timestamp = to_timestamp(t);
-    vector<shared_ptr<RecvMsg>> out;
-    auto res = servers.emplace(port, Server());
-    UdpSocket &sock = res.first->second.sock;
-    auto &queue = res.first->second.queue;
-    if (res.second) {
-        sock.bindTo(port);
-        if (!sock.isOk()) cerr << "Error binding: " << sock.errorMessage() << endl;
-        else cerr << "Server started!" << endl;
-    }
-    PacketReader pr;
-    while (sock.receiveNextPacket(0)) {
-        pr.init(sock.packetData(), sock.packetSize());
-        oscpkt::Message *msg;
-        while (pr.isOk() && (msg = pr.popMessage()))
-            queue.emplace_back(*msg);
-    }
-    for (auto it = queue.begin(); it != queue.end();) {
-        Message &msg = *it;
-        if (msg.match(path) && msg.timeTag() < timestamp) {
-            Message *copy = new Message;
-            *copy = msg;
-            auto ar = copy->match(path);
-            auto *arcopy = new Message::ArgReader(ar);
-            out.push_back(make_shared<RecvMsg>(arcopy, copy));
-            it = queue.erase(it);
-        }
-        else ++it;
-    }
-    return out;
-}
+vector<float> window;
+deque<float> aqueue, atmp, ainqueue;
+uint64_t time_samples = 0;
+fftw_plan plan_fwd, plan_inv;
+size_t nch_in = 0, nch_out = 0, nch_prev = 0;
+mutex frame_notify_mtx, // for waking up processing thread
+      exec_mtx, // guards user code exec
+      data_mtx; // guards aqueue, ainqueue
+condition_variable frame_notify;
+bool frame_ready = false;
 
 // builtins
 void set_hop(int new_hop) {
@@ -145,10 +59,9 @@ void next_hop_hz(uint32_t n, double hz) {
     set_hop(double(RATE)/hz);
 }
 
-using func_t = void(cplx *buf[2], int, double);
-atomic<func_t*> fptr(nullptr);
-void init_cling(int argc, char **argv) {
-    cling::Interpreter interp(argc, argv, LLVMRESDIR,
+using func_t = void(cplx **, int, cplx **, int, int, double);
+func_t* fptr(nullptr);
+void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, LLVMRESDIR,
             true); // disable runtime for simplicity
     interp.setDefaultOptLevel(2);
     interp.process( // preamble
@@ -161,6 +74,8 @@ void init_cling(int argc, char **argv) {
     interp.declare("void next_hop_ratio(uint32_t n, double hop_ratio=0.25);");
     interp.declare("void next_hop_samples(uint32_t n, uint32_t h);");
     interp.declare("void next_hop_hz(uint32_t n, double hz);");
+    interp.declare("void set_num_channels(size_t in, size_t out);");
+    interp.declare("void skip_to_now();");
 
     // make a fifo called "cmd", which commands are read from
     const char *command_file = argc > 1 ? argv[1] : "cmd";
@@ -186,6 +101,8 @@ void init_cling(int argc, char **argv) {
             string preview = to_exec.substr(0, preview_len);
             cerr << "execute: " << preview << "..." << endl;
 
+            exec_mtx.lock();
+
             // cling can't redefine functions, so replace the name of the entry point
             // with a unique name
             int name_loc = to_exec.find(SYNTH_MAIN);
@@ -197,11 +114,13 @@ void init_cling(int argc, char **argv) {
                 if (cling::Interpreter::kSuccess == interp.process(to_exec)) {
                     void *addr = interp.getAddressOfGlobal(uniq);
                     fptr = cling::utils::VoidToFunctionPtr<func_t*>(addr);
-                    cerr << "swap synth_main to " << addr << endl;
+                    cerr << "swap " << SYNTH_MAIN << " to " << addr << endl;
                 }
             } else {
                 interp.process(to_exec);
             }
+
+            exec_mtx.unlock();
 
             // move to next block
             begin = code.find(CODE_BEGIN);
@@ -210,95 +129,177 @@ void init_cling(int argc, char **argv) {
     }
 }
 
-void generate_frame() {
-    int new_size_copy = new_fft_size;
-    if (new_size_copy != fft_size) {
-        fft_size = new_size_copy;
-        if (fft_size) {
-            if (fft_out) fftw_free(fft_out);
-            if (fft_in) fftw_free(fft_in);
-            fft_out = (cplx*) fftw_malloc(sizeof(cplx) * fft_size*2);
-            fft_in = (cplx*) fftw_malloc(sizeof(cplx) * fft_size*2);
-            plan_left = fftw_plan_dft_1d(fft_size,
-                    (fftw_complex*) fft_in, (fftw_complex*) fft_out,
-                    FFTW_BACKWARD, FFTW_ESTIMATE);
-            plan_right = fftw_plan_dft_1d(fft_size,
-                    (fftw_complex*) fft_in+fft_size, (fftw_complex*) fft_out+fft_size,
-                    FFTW_BACKWARD, FFTW_ESTIMATE);
-            abuf.resize(fft_size);
-            window.resize(fft_size);
-            for (int i = 0; i < fft_size; i++)
-                window[i] = i<=fft_size/2 ? i/(fft_size/2.0) : (fft_size-i-1)/(fft_size/2.0);
+void generate_frames() {
+    while (true) {
+        { // wait until there's more to do
+            unique_lock<mutex> lk(frame_notify_mtx);
+            frame_notify.wait(lk, []{ return frame_ready; });
+            frame_ready = false;
         }
-    }
-    memset(fft_in, 0, fft_size*2*sizeof(cplx));
-    cplx* fft_buf[2] = {fft_in, fft_in+fft_size};
-    if (fptr) // call synthesis function
-        fptr.load()(fft_buf, fft_size/2, time_secs);
-    if (fft_size) {
-        fftw_execute(plan_left);
-        fftw_execute(plan_right);
-    }
-
-    int hop_fix = hop; // fix current value of hop
-    // output region that overlaps with previous frame(s)
-    for (int i = 0; i < min(hop_fix, fft_size); i++) {
-        for (int c = 0; c < 2; c++) {
-            float overlap = 0;
-            if (!atmp.empty()) {
-                overlap = atmp.front();
-                atmp.pop_front();
+        lock_guard<mutex> exec_lk(exec_mtx);
+        while (true) {
+            size_t nch = max(nch_in, nch_out);
+            if (nch != nch_prev || new_fft_size != fft_size) {
+                fft_size = new_fft_size;
+                nch_prev = nch;
+                if (fft_size) {
+                    if (fft_out) fftw_free(fft_out);
+                    if (fft_in) fftw_free(fft_in);
+                    fft_out = (cplx*) fftw_malloc(sizeof(cplx)*nch*fft_size);
+                    fft_in = (cplx*) fftw_malloc(sizeof(cplx)*nch*fft_size);
+                    int n[] = {fft_size};
+                    plan_fwd = fftw_plan_many_dft(1, n, nch_in,
+                            (fftw_complex*) fft_in, nullptr, 1, fft_size,
+                            (fftw_complex*) fft_out, nullptr, 1, fft_size,
+                            FFTW_FORWARD, FFTW_ESTIMATE);
+                    plan_inv = fftw_plan_many_dft(1, n, nch_out,
+                            (fftw_complex*) fft_in, nullptr, 1, fft_size,
+                            (fftw_complex*) fft_out, nullptr, 1, fft_size,
+                            FFTW_BACKWARD, FFTW_ESTIMATE);
+                    window.resize(fft_size);
+                    for (int i = 0; i < fft_size; i++)
+                        window[i] = sqrt(0.5*(1-cos(2*M_PI*i/fft_size))); // Hann
+                }
             }
-            aqueue.push(overlap + fft_out[i+c*fft_size].real()*window[i]);
+            memset(fft_in, 0, sizeof(cplx)*nch*fft_size);
+            {
+                lock_guard<mutex> data_lk(data_mtx);
+                if (ainqueue.size() < nch_in*(hop+fft_size))
+                    break;
+                size_t sz_tmp = ainqueue.size();
+                for (size_t i = 0; i < min(nch_in*hop, sz_tmp); i++)
+                    ainqueue.pop_front();
+                for (int i = 0; i < fft_size; i++) {
+                    for (size_t c = 0; c < nch_in; c++) {
+                        if (i*nch_in+c < ainqueue.size())
+                            fft_in[i+c*fft_size] = ainqueue[i*nch_in+c]/fft_size*window[i];
+                        else fft_in[i+c*fft_size] = 0;
+                    }
+                }
+            }
+            memset(fft_out, 0, sizeof(cplx)*nch*fft_size);
+            if (fft_size) fftw_execute(plan_fwd);
+
+            cplx *fft_buf_in[nch], *fft_buf_out[nch];
+            for (size_t c = 0; c < nch; c++) {
+                fft_buf_in[c] = fft_in + c*fft_size;
+                fft_buf_out[c] = fft_out + c*fft_size;
+            }
+            memset(fft_in, 0, sizeof(cplx)*nch*fft_size);
+            if (fptr) // call synthesis function
+                fptr(fft_buf_out, nch_in, fft_buf_in, nch_out, fft_size/2, time_samples/(double)RATE);
+            for (int i = 0; i < fft_size/2; i++)
+                for (size_t c = 0; c < nch_out; c++)
+                    fft_buf_in[c][i+fft_size/2] = conj(fft_buf_in[c][fft_size/2-i]);
+            if (fft_size) fftw_execute(plan_inv);
+
+            {
+                lock_guard<mutex> data_lk(data_mtx);
+                // output region that overlaps with previous frame(s)
+                for (int i = 0; i < min(hop, fft_size); i++) {
+                    for (size_t c = 0; c < nch_out; c++) {
+                        float overlap = 0;
+                        if (!atmp.empty()) {
+                            overlap = atmp.front();
+                            atmp.pop_front();
+                        }
+                        aqueue.push_back(overlap + fft_out[i+c*fft_size].real()*window[i]);
+                    }
+                }
+                // if the hop is larger than the frame size, insert silence
+                for (int i = 0; i < int(nch_out)*(hop-fft_size); i++)
+                    aqueue.push_back(0);
+            }
+            // save region that overlaps with next frame
+            for (int i = 0; i < fft_size-hop; i++) {
+                for (size_t c = 0; c < nch_out; c++) {
+                    float out_val = fft_out[hop+i+c*fft_size].real()*window[i+hop];
+                    if (i*nch_out+c < atmp.size()) atmp[i*nch_out+c] += out_val;
+                    else atmp.push_back(out_val);
+                }
+            }
+
+            time_samples += hop;
         }
     }
-    // if the hop is larger than the frame size, insert silence
-    for (int i = 0; i < 2*(hop_fix-fft_size); i++)
-        aqueue.push(0);
-    // save region that overlaps with next frame
-    for (int i = 0; i < fft_size-hop_fix; i++) {
-        for (int c = 0; c < 2; c++) {
-            float out_val = fft_out[hop_fix+i+c*fft_size].real()*window[i+hop_fix];
-            if (i*2+c < (int)atmp.size()) atmp[i*2+c] += out_val;
-            else atmp.push_back(out_val);
+}
+
+jack_client_t *client;
+vector<jack_port_t *> in_ports;
+vector<jack_port_t *> out_ports;
+
+int audio_cb(jack_nframes_t len, void *) {
+    float *in_bufs[in_ports.size()];
+    float *out_bufs[out_ports.size()];
+    for (size_t i = 0; i < nch_in; i++)
+        in_bufs[i] = (float*) jack_port_get_buffer(in_ports[i], len);
+    for (size_t i = 0; i < nch_out; i++)
+        out_bufs[i] = (float*) jack_port_get_buffer(out_ports[i], len);
+    lock_guard<mutex> data_lk(data_mtx);
+    for (size_t i = 0; i < len; i++)
+        for (size_t c = 0; c < nch_in; c++)
+            ainqueue.push_back(in_bufs[c][i]);
+    {
+        unique_lock<mutex> lk(frame_notify_mtx);
+        frame_ready = true;
+    }
+    frame_notify.notify_one();
+    for (size_t i = 0; i < len; i++)
+        for (size_t c = 0; c < nch_out; c++) {
+            if (!aqueue.empty()) {
+                out_bufs[c][i] = aqueue.front();
+                aqueue.pop_front();
+            } else {
+                out_bufs[c][i] = 0;
+            }
         }
-    }
-
-    time_secs += hop_fix/(double)RATE;
+    return 0;
 }
 
-void audio_cb(void *, uint8_t *stream, int len) {
-    float *out = (float*) stream;
-    for (size_t i = 0; i < len/sizeof(float); i++) {
-        if (aqueue.empty())
-            generate_frame();
-        out[i] = aqueue.front();
-        aqueue.pop();
+void set_num_channels(size_t in, size_t out) {
+    for (size_t i = in; i < nch_in; i++) {
+        jack_port_unregister(client, in_ports.back());
+        in_ports.pop_back();
     }
+    for (size_t i = nch_in; i < in; i++) {
+        string name = "in" + to_string(i);
+        in_ports.push_back(jack_port_register(client, name.c_str(), JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0));
+    }
+    for (size_t i = out; i < nch_out; i++) {
+        jack_port_unregister(client, out_ports.back());
+        out_ports.pop_back();
+    }
+    for (size_t i = nch_out; i < out; i++) {
+        string name = "out" + to_string(i);
+        out_ports.push_back(jack_port_register(client, name.c_str(), JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0));
+    }
+    nch_in = in;
+    nch_out = out;
 }
 
-void init_audio() {
-    SDL_Init(SDL_INIT_AUDIO);
+void skip_to_now() {
+    lock_guard<mutex> data_lk(data_mtx);
+    ainqueue.resize(nch_in*(hop+fft_size));
+    aqueue.resize(0);
+}
 
-    SDL_AudioSpec want, have;
-    SDL_zero(want);
-    want.freq = RATE;
-    want.format = AUDIO_F32SYS;
-    want.channels = 2;
-    want.samples = BUFFER_SIZE;
-    want.callback = audio_cb;
-    adev = SDL_OpenAudioDevice(nullptr,0,&want,&have,0);
-    if (adev == 0) {
-        cerr << "Failed to open audio: " << SDL_GetError() << endl;
+void init_audio(int argc, char **argv) {
+    const char *command_file = argc > 1 ? argv[1] : "cmd";
+    string client_name = string("tinyspec_") + command_file;
+    jack_status_t status;
+    client = jack_client_open(client_name.c_str(), JackNullOption, &status);
+    if (!client) {
+        cerr << "Failed to open jack client: " << status << endl;
         exit(1);
     }
-
-    SDL_PauseAudioDevice(adev,0);
-    cerr << "Playing... " << endl;
+    set_num_channels(2,2);
+    jack_set_process_callback(client, audio_cb, nullptr);
+    jack_activate(client);
 }
 
 int main(int argc, char **argv) {
     gettimeofday(&init_time, NULL);
-    init_audio();
+    init_audio(argc, argv);
+    thread worker(generate_frames);
     init_cling(argc, argv);
 }
