@@ -186,6 +186,8 @@ void generate_frames() {
                 fft_buf_out[c] = fft_out + c*fft_size;
             }
             memset(fft_in, 0, sizeof(cplx)*nch*fft_size);
+            if (time_samples == 0)
+                gettimeofday(&init_time, NULL);
             if (fptr) // call synthesis function
                 fptr(fft_buf_out, nch_in, fft_buf_in, nch_out, fft_size/2, time_samples/(double)RATE);
             for (int i = 0; i < fft_size/2; i++)
@@ -298,7 +300,6 @@ void init_audio(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
-    gettimeofday(&init_time, NULL);
     init_audio(argc, argv);
     thread worker(generate_frames);
     init_cling(argc, argv);
