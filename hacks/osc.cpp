@@ -10,7 +10,7 @@
 // Then execute this and you should hear some sounds!
 // These sounds are not produced by tinyspec directly but
 // are coming from superdirt.
-extern "C" void synth_main(cplx*buf[2],int n,double t){
+extern "C" void process(cplx **in, int nch_in, cplx **out, int nch_out, int n, double t){
     int s = t*16; // note counter
     // First two args are the OSC server address and port (UDP)
     // Third arg is the time it should be triggered at.

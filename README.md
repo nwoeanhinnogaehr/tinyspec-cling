@@ -95,6 +95,10 @@ frame generation is `hz` Hz. That is, advance by `RATE/hz` samples.
 You can also call `void set_num_channels(size_t in, size_t out);`
 to set the number of input and output channels to use.
 
+Finally, if you notice a lot of latency, you can force
+the synthesizer to discard buffered data and skip to the present moment
+by calling `void skip_to_now();`
+
 See the hacks directory for some other examples.
 Even more examples---which may require adaptation for this fork---are available as part of [tinyspec](https://github.com/nwoeanhinnogaehr/tinyspec).
 
