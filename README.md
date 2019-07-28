@@ -24,12 +24,14 @@ To run the server do:
 $ ./tinyspec /tmp/ts-example
 ```
 Where `/tmp/ts-example` is the pipe to create for executing code from.
+If you run multiple instances they must have unique pipe files.
 If all goes well you should see
 ```
 Playing...
 ```
 There may be some warnings from cling afterwards, which may or may not be safe to ignore!
-You won't hear anything yet, so read on to figure out how to use it.
+You won't hear anything yet for two reasons: the application is not
+connected to your speakers (do this through JACK) and we haven't sent it any code yet.
 
 ## Editor setup
 The `send` program can be invoked on the command line to execute code on the server.
@@ -39,7 +41,7 @@ For example try
 ```
 $ ./send /tmp/ts-example
 cout << "Hello World!" << endl;
-
+^D
 ```
 
 It's probably easy to set up your editor to invoke `send` with the current selection or block.
