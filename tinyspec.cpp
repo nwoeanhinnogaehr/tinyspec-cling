@@ -297,6 +297,7 @@ void init_audio(int argc, char **argv) {
     set_num_channels(2,2);
     jack_set_process_callback(client, audio_cb, nullptr);
     jack_activate(client);
+    cout << "Playing..." << endl;
 }
 
 int main(int argc, char **argv) {
