@@ -61,7 +61,7 @@ void next_hop_hz(uint32_t n, double hz) {
 
 using func_t = void(cplx **, int, cplx **, int, int, double);
 func_t* fptr(nullptr);
-void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, LLVMRESDIR,
+void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, LLVMRESDIR, {},
             true); // disable runtime for simplicity
     interp.setDefaultOptLevel(2);
     interp.process( // preamble
