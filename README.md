@@ -6,7 +6,7 @@ via [cling](https://root.cern.ch/cling).
 ## Install
 Download an appropriate cling package from https://root.cern.ch/download/cling/
 and extract it to a directory called `cling_bin`.
-(If you're using Arch, the Ubuntu 16 package gives some warnings but basically seems to work.)
+(If you're using Arch, the Ubuntu 18 package gives some warnings but basically seems to work.)
 
 [JACK Audio Connection Kit](http://www.jackaudio.org/) is used for audio output, and [FFTW3](http://www.fftw.org/) is required for synthesis.
 After both are installed, compile tinyspec by cloning this repository and running `./compile`.
