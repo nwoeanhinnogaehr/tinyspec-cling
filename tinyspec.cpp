@@ -14,26 +14,24 @@
 #include<sys/time.h>
 #include<fcntl.h>
 #include<jack/jack.h>
-#include<fftw3.h>
 #include"cling/Interpreter/Interpreter.h"
 #include"cling/Utils/Casting.h"
 #include"osc.h"
+#include"synth.h"
 using namespace std;
-typedef complex<double> cplx;
 
 const char *LLVMRESDIR = "cling_bin"; // path to cling resource directory
 const char *CODE_BEGIN = "<<<";
 const char *CODE_END = ">>>";
 const char *SYNTH_MAIN = "process";
 
-int fft_size;
-int new_fft_size(1<<12); // initial size
-int hop(new_fft_size/2);
-cplx *fft_out = nullptr, *fft_in = nullptr;
+int window_size;
+int new_window_size(1<<12); // initial size
+int hop(new_window_size/2);
 vector<float> window;
 deque<float> aqueue, atmp, ainqueue;
+double *audio_in = nullptr, *audio_out = nullptr;
 uint64_t time_samples = 0;
-fftw_plan plan_fwd, plan_inv;
 size_t nch_in = 0, nch_out = 0, nch_prev = 0;
 mutex frame_notify_mtx, // for waking up processing thread
       exec_mtx, // guards user code exec
@@ -47,19 +45,19 @@ void set_hop(int new_hop) {
     else hop = new_hop;
 }
 void next_hop_samples(uint32_t n, uint32_t h) {
-    new_fft_size = n;
+    new_window_size = n;
     set_hop(h);
 }
 void next_hop_ratio(uint32_t n, double ratio=0.25) {
-    new_fft_size = n;
+    new_window_size = n;
     set_hop(n*ratio);
 }
 void next_hop_hz(uint32_t n, double hz) {
-    new_fft_size = n;
+    new_window_size = n;
     set_hop(double(RATE)/hz);
 }
 
-using func_t = void(cplx **, int, cplx **, int, int, double);
+using func_t = void(double **, int, double **, int, int, double);
 func_t* fptr(nullptr);
 void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, LLVMRESDIR, {},
             true); // disable runtime for simplicity
@@ -69,13 +67,14 @@ void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, L
             "#include<iostream>\n"
             "#include<vector>\n"
             "#include\"osc_rt.h\"\n"
-            "using namespace std;\n"
-            "using cplx=complex<double>;\n");
+            "#include\"synth.h\"\n"
+            "using namespace std;\n");
     interp.declare("void next_hop_ratio(uint32_t n, double hop_ratio=0.25);");
     interp.declare("void next_hop_samples(uint32_t n, uint32_t h);");
     interp.declare("void next_hop_hz(uint32_t n, double hz);");
     interp.declare("void set_num_channels(size_t in, size_t out);");
     interp.declare("void skip_to_now();");
+    interp.declare("void frft(size_t num_channels, size_t window_size, FFTBuf &in, FFTBuf &out, double exponent);");
 
     // make a fifo called "cmd", which commands are read from
     const char *command_file = argc > 1 ? argv[1] : "cmd";
@@ -129,6 +128,46 @@ void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, L
     }
 }
 
+// fast fractional fourier transform
+// https://algassert.com/post/1710
+void frft(size_t num_channels, size_t fft_size, FFTBuf &in, FFTBuf &out, double exponent) {
+    if (num_channels*fft_size == 0)
+        return;
+    assert(in.fft_size == fft_size);
+    assert(out.fft_size == fft_size);
+    assert(in.num_channels == num_channels);
+    assert(out.num_channels == num_channels);
+    size_t data_size = sizeof(cplx)*num_channels*fft_size;
+    FFTBuf fft_tmp(num_channels, fft_size);
+    int size_arr[] = {(int) fft_size};
+    fftw_plan plan = fftw_plan_many_dft(1, size_arr, num_channels,
+            (fftw_complex*) in.data, nullptr, 1, fft_size,
+            (fftw_complex*) out.data, nullptr, 1, fft_size,
+            FFTW_FORWARD, FFTW_ESTIMATE);
+    fftw_execute(plan);
+    fftw_destroy_plan(plan);
+    memcpy(fft_tmp.data, out.data, data_size);
+    cplx im(0, 1);
+    double sqrtn = sqrt(fft_size);
+    for (size_t c = 0; c < num_channels; c++) {
+        for (size_t i = 0; i < fft_size; i++) {
+            int j = i ? fft_size-i : 0;
+            cplx f0 = in[c][i];
+            cplx f1 = fft_tmp[c][i]/sqrtn;
+            cplx f2 = in[c][j];
+            cplx f3 = fft_tmp[c][j]/sqrtn;
+            cplx b0 = f0 + f1 + f2 + f3;
+            cplx b1 = f0 + im*f1 - f2 - im*f3;
+            cplx b2 = f0 - f1 + f2 - f3;
+            cplx b3 = f0 - im*f1 - f2 + im*f3;
+            b1 *= pow(im, exponent);
+            b2 *= pow(im, exponent*2);
+            b3 *= pow(im, exponent*3);
+            out[c][i] = (b0 + b1 + b2 + b3) / 4.0;
+        }
+    }
+}
+
 void generate_frames() {
     while (true) {
         { // wait until there's more to do
@@ -139,83 +178,63 @@ void generate_frames() {
         lock_guard<mutex> exec_lk(exec_mtx);
         while (true) {
             size_t nch = max(nch_in, nch_out);
-            if (nch != nch_prev || new_fft_size != fft_size) {
-                fft_size = new_fft_size;
-                nch_prev = nch;
-                if (fft_size) {
-                    if (fft_out) fftw_free(fft_out);
-                    if (fft_in) fftw_free(fft_in);
-                    fft_out = (cplx*) fftw_malloc(sizeof(cplx)*nch*fft_size);
-                    fft_in = (cplx*) fftw_malloc(sizeof(cplx)*nch*fft_size);
-                    int n[] = {fft_size};
-                    plan_fwd = fftw_plan_many_dft(1, n, nch_in,
-                            (fftw_complex*) fft_in, nullptr, 1, fft_size,
-                            (fftw_complex*) fft_out, nullptr, 1, fft_size,
-                            FFTW_FORWARD, FFTW_ESTIMATE);
-                    plan_inv = fftw_plan_many_dft(1, n, nch_out,
-                            (fftw_complex*) fft_in, nullptr, 1, fft_size,
-                            (fftw_complex*) fft_out, nullptr, 1, fft_size,
-                            FFTW_BACKWARD, FFTW_ESTIMATE);
-                    window.resize(fft_size);
-                    for (int i = 0; i < fft_size; i++)
-                        window[i] = sqrt(0.5*(1-cos(2*M_PI*i/fft_size))); // Hann
+            if (new_window_size != window_size) {
+                window_size = new_window_size;
+                if (window_size) {
+                    if (audio_in) free(audio_in);
+                    if (audio_out) free(audio_out);
+                    audio_in = (double*) malloc(sizeof(double)*nch_in*window_size);
+                    audio_out = (double*) malloc(sizeof(double)*nch_out*window_size);
                 }
+                window.resize(window_size);
+                for (int i = 0; i < window_size; i++)
+                    window[i] = sqrt(0.5*(1-cos(2*M_PI*i/window_size))); // Hann
             }
-            memset(fft_in, 0, sizeof(cplx)*nch*fft_size);
             {
                 lock_guard<mutex> data_lk(data_mtx);
-                if (ainqueue.size() < nch_in*(hop+fft_size))
+                if (ainqueue.size() < nch_in*(hop+window_size))
                     break;
                 size_t sz_tmp = ainqueue.size();
                 for (size_t i = 0; i < min(nch_in*hop, sz_tmp); i++)
                     ainqueue.pop_front();
-                for (int i = 0; i < fft_size; i++) {
+                for (int i = 0; i < window_size; i++) {
                     for (size_t c = 0; c < nch_in; c++) {
                         if (i*nch_in+c < ainqueue.size())
-                            fft_in[i+c*fft_size] = ainqueue[i*nch_in+c]/fft_size*window[i];
-                        else fft_in[i+c*fft_size] = 0;
+                            audio_in[i+c*window_size] = ainqueue[i*nch_in+c]*window[i];
+                        else audio_in[i+c*window_size] = 0;
                     }
                 }
             }
-            memset(fft_out, 0, sizeof(cplx)*nch*fft_size);
-            if (fft_size) fftw_execute(plan_fwd);
-
-            cplx *fft_buf_in[nch], *fft_buf_out[nch];
+            double *audio_buf_in[nch], *audio_buf_out[nch];
             for (size_t c = 0; c < nch; c++) {
-                fft_buf_in[c] = fft_in + c*fft_size;
-                fft_buf_out[c] = fft_out + c*fft_size;
+                audio_buf_in[c] = audio_in + c*window_size;
+                audio_buf_out[c] = audio_out + c*window_size;
             }
-            memset(fft_in, 0, sizeof(cplx)*nch*fft_size);
             if (time_samples == 0)
                 gettimeofday(&init_time, NULL);
             if (fptr) // call synthesis function
-                fptr(fft_buf_out, nch_in, fft_buf_in, nch_out, fft_size/2, time_samples/(double)RATE);
-            for (int i = 0; i < fft_size/2; i++)
-                for (size_t c = 0; c < nch_out; c++)
-                    fft_buf_in[c][i+fft_size/2] = conj(fft_buf_in[c][fft_size/2-i]);
-            if (fft_size) fftw_execute(plan_inv);
-
+                fptr(audio_buf_in, nch_in, audio_buf_out, nch_out, window_size, time_samples/(double)RATE);
             {
                 lock_guard<mutex> data_lk(data_mtx);
                 // output region that overlaps with previous frame(s)
-                for (int i = 0; i < min(hop, fft_size); i++) {
+                for (int i = 0; i < min(hop, window_size); i++) {
                     for (size_t c = 0; c < nch_out; c++) {
                         float overlap = 0;
                         if (!atmp.empty()) {
                             overlap = atmp.front();
                             atmp.pop_front();
                         }
-                        aqueue.push_back(overlap + fft_out[i+c*fft_size].real()*window[i]);
+                        aqueue.push_back(overlap + audio_out[i+c*window_size]*window[i]);
                     }
                 }
                 // if the hop is larger than the frame size, insert silence
-                for (int i = 0; i < int(nch_out)*(hop-fft_size); i++)
+                for (int i = 0; i < int(nch_out)*(hop-window_size); i++)
                     aqueue.push_back(0);
             }
             // save region that overlaps with next frame
-            for (int i = 0; i < fft_size-hop; i++) {
+            for (int i = 0; i < window_size-hop; i++) {
                 for (size_t c = 0; c < nch_out; c++) {
-                    float out_val = fft_out[hop+i+c*fft_size].real()*window[i+hop];
+                    float out_val = audio_out[hop+i+c*window_size]*window[i+hop];
                     if (i*nch_out+c < atmp.size()) atmp[i*nch_out+c] += out_val;
                     else atmp.push_back(out_val);
                 }
@@ -281,7 +300,7 @@ void set_num_channels(size_t in, size_t out) {
 
 void skip_to_now() {
     lock_guard<mutex> data_lk(data_mtx);
-    ainqueue.resize(nch_in*(hop+fft_size));
+    ainqueue.resize(nch_in*(hop+window_size));
     aqueue.resize(0);
 }
 
