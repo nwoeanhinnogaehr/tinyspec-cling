@@ -25,14 +25,14 @@ const char *CODE_BEGIN = "<<<";
 const char *CODE_END = ">>>";
 const char *SYNTH_MAIN = "process";
 
-int window_size;
-int new_window_size(1<<12); // initial size
-int hop(new_window_size/2);
+size_t window_size;
+size_t new_window_size(1<<12); // initial size
+size_t hop(new_window_size/2);
 vector<float> window;
 deque<float> aqueue, atmp, ainqueue;
 double *audio_in = nullptr, *audio_out = nullptr;
 uint64_t time_samples = 0;
-size_t nch_in = 0, nch_out = 0, nch_prev = 0;
+size_t nch_in = 0, nch_out = 0, new_nch_in = 0, new_nch_out = 0;
 mutex frame_notify_mtx, // for waking up processing thread
       exec_mtx, // guards user code exec
       data_mtx; // guards aqueue, ainqueue
@@ -148,6 +148,9 @@ void frft(size_t num_channels, size_t fft_size, FFTBuf &in, FFTBuf &out, double 
     fftw_destroy_plan(plan);
     memcpy(fft_tmp.data, out.data, data_size);
     cplx im(0, 1);
+    cplx im1 = pow(im, exponent);
+    cplx im2 = pow(im, exponent*2);
+    cplx im3 = pow(im, exponent*3);
     double sqrtn = sqrt(fft_size);
     for (size_t c = 0; c < num_channels; c++) {
         for (size_t i = 0; i < fft_size; i++) {
@@ -160,9 +163,9 @@ void frft(size_t num_channels, size_t fft_size, FFTBuf &in, FFTBuf &out, double 
             cplx b1 = f0 + im*f1 - f2 - im*f3;
             cplx b2 = f0 - f1 + f2 - f3;
             cplx b3 = f0 - im*f1 - f2 + im*f3;
-            b1 *= pow(im, exponent);
-            b2 *= pow(im, exponent*2);
-            b3 *= pow(im, exponent*3);
+            b1 *= im1;
+            b2 *= im2;
+            b3 *= im3;
             out[c][i] = (b0 + b1 + b2 + b3) / 4.0;
         }
     }
@@ -177,27 +180,28 @@ void generate_frames() {
         }
         lock_guard<mutex> exec_lk(exec_mtx);
         while (true) {
-            size_t nch = max(nch_in, nch_out);
-            if (new_window_size != window_size) {
-                window_size = new_window_size;
-                if (window_size) {
-                    if (audio_in) free(audio_in);
-                    if (audio_out) free(audio_out);
-                    audio_in = (double*) malloc(sizeof(double)*nch_in*window_size);
-                    audio_out = (double*) malloc(sizeof(double)*nch_out*window_size);
-                }
-                window.resize(window_size);
-                for (int i = 0; i < window_size; i++)
-                    window[i] = sqrt(0.5*(1-cos(2*M_PI*i/window_size))); // Hann
-            }
             {
                 lock_guard<mutex> data_lk(data_mtx);
+                if (new_nch_in != nch_in || new_nch_out != nch_out || new_window_size != window_size) {
+                    window_size = new_window_size;
+                    nch_in = new_nch_in;
+                    nch_out = new_nch_out;
+                    if (window_size) {
+                        if (audio_in) free(audio_in);
+                        if (audio_out) free(audio_out);
+                        audio_in = (double*) malloc(sizeof(double)*nch_in*window_size);
+                        audio_out = (double*) malloc(sizeof(double)*nch_out*window_size);
+                    }
+                    window.resize(window_size);
+                    for (size_t i = 0; i < window_size; i++)
+                        window[i] = sqrt(0.5*(1-cos(2*M_PI*i/window_size))); // Hann
+                }
                 if (ainqueue.size() < nch_in*(hop+window_size))
                     break;
                 size_t sz_tmp = ainqueue.size();
                 for (size_t i = 0; i < min(nch_in*hop, sz_tmp); i++)
                     ainqueue.pop_front();
-                for (int i = 0; i < window_size; i++) {
+                for (size_t i = 0; i < window_size; i++) {
                     for (size_t c = 0; c < nch_in; c++) {
                         if (i*nch_in+c < ainqueue.size())
                             audio_in[i+c*window_size] = ainqueue[i*nch_in+c]*window[i];
@@ -205,11 +209,11 @@ void generate_frames() {
                     }
                 }
             }
-            double *audio_buf_in[nch], *audio_buf_out[nch];
-            for (size_t c = 0; c < nch; c++) {
+            double *audio_buf_in[nch_in], *audio_buf_out[nch_out];
+            for (size_t c = 0; c < nch_in; c++)
                 audio_buf_in[c] = audio_in + c*window_size;
+            for (size_t c = 0; c < nch_out; c++)
                 audio_buf_out[c] = audio_out + c*window_size;
-            }
             if (time_samples == 0)
                 gettimeofday(&init_time, NULL);
             if (fptr) // call synthesis function
@@ -217,7 +221,7 @@ void generate_frames() {
             {
                 lock_guard<mutex> data_lk(data_mtx);
                 // output region that overlaps with previous frame(s)
-                for (int i = 0; i < min(hop, window_size); i++) {
+                for (size_t i = 0; i < min(hop, window_size); i++) {
                     for (size_t c = 0; c < nch_out; c++) {
                         float overlap = 0;
                         if (!atmp.empty()) {
@@ -228,11 +232,11 @@ void generate_frames() {
                     }
                 }
                 // if the hop is larger than the frame size, insert silence
-                for (int i = 0; i < int(nch_out)*(hop-window_size); i++)
+                for (int i = 0; i < int(nch_out)*(int(hop)-int(window_size)); i++)
                     aqueue.push_back(0);
             }
             // save region that overlaps with next frame
-            for (int i = 0; i < window_size-hop; i++) {
+            for (int i = 0; i < int(window_size)-int(hop); i++) {
                 for (size_t c = 0; c < nch_out; c++) {
                     float out_val = audio_out[hop+i+c*window_size]*window[i+hop];
                     if (i*nch_out+c < atmp.size()) atmp[i*nch_out+c] += out_val;
@@ -250,13 +254,13 @@ vector<jack_port_t *> in_ports;
 vector<jack_port_t *> out_ports;
 
 int audio_cb(jack_nframes_t len, void *) {
+    lock_guard<mutex> data_lk(data_mtx);
     float *in_bufs[in_ports.size()];
     float *out_bufs[out_ports.size()];
     for (size_t i = 0; i < nch_in; i++)
         in_bufs[i] = (float*) jack_port_get_buffer(in_ports[i], len);
     for (size_t i = 0; i < nch_out; i++)
         out_bufs[i] = (float*) jack_port_get_buffer(out_ports[i], len);
-    lock_guard<mutex> data_lk(data_mtx);
     for (size_t i = 0; i < len; i++)
         for (size_t c = 0; c < nch_in; c++)
             ainqueue.push_back(in_bufs[c][i]);
@@ -278,24 +282,24 @@ int audio_cb(jack_nframes_t len, void *) {
 }
 
 void set_num_channels(size_t in, size_t out) {
-    for (size_t i = in; i < nch_in; i++) {
+    for (size_t i = in; i < new_nch_in; i++) {
         jack_port_unregister(client, in_ports.back());
         in_ports.pop_back();
     }
-    for (size_t i = nch_in; i < in; i++) {
+    for (size_t i = new_nch_in; i < in; i++) {
         string name = "in" + to_string(i);
         in_ports.push_back(jack_port_register(client, name.c_str(), JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0));
     }
-    for (size_t i = out; i < nch_out; i++) {
+    for (size_t i = out; i < new_nch_out; i++) {
         jack_port_unregister(client, out_ports.back());
         out_ports.pop_back();
     }
-    for (size_t i = nch_out; i < out; i++) {
+    for (size_t i = new_nch_out; i < out; i++) {
         string name = "out" + to_string(i);
         out_ports.push_back(jack_port_register(client, name.c_str(), JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0));
     }
-    nch_in = in;
-    nch_out = out;
+    new_nch_in = in;
+    new_nch_out = out;
 }
 
 void skip_to_now() {
