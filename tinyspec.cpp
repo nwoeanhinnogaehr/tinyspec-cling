@@ -28,7 +28,6 @@ const char *SYNTH_MAIN = "process";
 size_t window_size;
 size_t new_window_size(1<<12); // initial size
 size_t hop(new_window_size/2);
-vector<float> window;
 deque<float> aqueue, atmp, ainqueue;
 double *audio_in = nullptr, *audio_out = nullptr;
 uint64_t time_samples = 0;
@@ -192,9 +191,6 @@ void generate_frames() {
                         audio_in = (double*) malloc(sizeof(double)*nch_in*window_size);
                         audio_out = (double*) malloc(sizeof(double)*nch_out*window_size);
                     }
-                    window.resize(window_size);
-                    for (size_t i = 0; i < window_size; i++)
-                        window[i] = sqrt(0.5*(1-cos(2*M_PI*i/window_size))); // Hann
                 }
                 if (ainqueue.size() < nch_in*(hop+window_size))
                     break;
@@ -204,7 +200,7 @@ void generate_frames() {
                 for (size_t i = 0; i < window_size; i++) {
                     for (size_t c = 0; c < nch_in; c++) {
                         if (i*nch_in+c < ainqueue.size())
-                            audio_in[i+c*window_size] = ainqueue[i*nch_in+c]*window[i];
+                            audio_in[i+c*window_size] = ainqueue[i*nch_in+c];
                         else audio_in[i+c*window_size] = 0;
                     }
                 }
@@ -228,7 +224,7 @@ void generate_frames() {
                             overlap = atmp.front();
                             atmp.pop_front();
                         }
-                        aqueue.push_back(overlap + audio_out[i+c*window_size]*window[i]);
+                        aqueue.push_back(overlap + audio_out[i+c*window_size]);
                     }
                 }
                 // if the hop is larger than the frame size, insert silence
@@ -238,7 +234,7 @@ void generate_frames() {
             // save region that overlaps with next frame
             for (int i = 0; i < int(window_size)-int(hop); i++) {
                 for (size_t c = 0; c < nch_out; c++) {
-                    float out_val = audio_out[hop+i+c*window_size]*window[i+hop];
+                    float out_val = audio_out[hop+i+c*window_size];
                     if (i*nch_out+c < atmp.size()) atmp[i*nch_out+c] += out_val;
                     else atmp.push_back(out_val);
                 }
