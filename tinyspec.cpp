@@ -29,7 +29,7 @@ size_t window_size;
 size_t new_window_size(1<<12); // initial size
 size_t hop(new_window_size/2);
 deque<float> aqueue, atmp, ainqueue;
-double *audio_in = nullptr, *audio_out = nullptr;
+WaveBuf audio_in, audio_out;
 uint64_t time_samples = 0;
 size_t nch_in = 0, nch_out = 0, new_nch_in = 0, new_nch_out = 0;
 mutex frame_notify_mtx, // for waking up processing thread
@@ -56,7 +56,7 @@ void next_hop_hz(uint32_t n, double hz) {
     set_hop(double(RATE)/hz);
 }
 
-using func_t = void(double **, int, double **, int, int, double);
+using func_t = void(WaveBuf&, WaveBuf&, int, double);
 func_t* fptr(nullptr);
 void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, LLVMRESDIR, {},
             true); // disable runtime for simplicity
@@ -73,7 +73,7 @@ void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, L
     interp.declare("void next_hop_hz(uint32_t n, double hz);");
     interp.declare("void set_num_channels(size_t in, size_t out);");
     interp.declare("void skip_to_now();");
-    interp.declare("void frft(size_t num_channels, size_t window_size, FFTBuf &in, FFTBuf &out, double exponent);");
+    interp.declare("void frft(FFTBuf &in, FFTBuf &out, double exponent);");
 
     // make a fifo called "cmd", which commands are read from
     const char *command_file = argc > 1 ? argv[1] : "cmd";
@@ -129,13 +129,13 @@ void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, L
 
 // fast fractional fourier transform
 // https://algassert.com/post/1710
-void frft(size_t num_channels, size_t fft_size, FFTBuf &in, FFTBuf &out, double exponent) {
+void frft(FFTBuf &in, FFTBuf &out, double exponent) {
+    assert(in.fft_size == out.fft_size);
+    assert(in.num_channels == in.num_channels);
+    size_t num_channels = in.num_channels;
+    size_t fft_size = in.fft_size;
     if (num_channels*fft_size == 0)
         return;
-    assert(in.fft_size == fft_size);
-    assert(out.fft_size == fft_size);
-    assert(in.num_channels == num_channels);
-    assert(out.num_channels == num_channels);
     size_t data_size = sizeof(cplx)*num_channels*fft_size;
     FFTBuf fft_tmp(num_channels, fft_size);
     int size_arr[] = {(int) fft_size};
@@ -185,12 +185,8 @@ void generate_frames() {
                     window_size = new_window_size;
                     nch_in = new_nch_in;
                     nch_out = new_nch_out;
-                    if (window_size) {
-                        if (audio_in) free(audio_in);
-                        if (audio_out) free(audio_out);
-                        audio_in = (double*) malloc(sizeof(double)*nch_in*window_size);
-                        audio_out = (double*) malloc(sizeof(double)*nch_out*window_size);
-                    }
+                    audio_in.resize(nch_in, window_size);
+                    audio_out.resize(nch_out, window_size);
                 }
                 if (ainqueue.size() < nch_in*(hop+window_size))
                     break;
@@ -200,20 +196,15 @@ void generate_frames() {
                 for (size_t i = 0; i < window_size; i++) {
                     for (size_t c = 0; c < nch_in; c++) {
                         if (i*nch_in+c < ainqueue.size())
-                            audio_in[i+c*window_size] = ainqueue[i*nch_in+c];
-                        else audio_in[i+c*window_size] = 0;
+                            audio_in[c][i] = ainqueue[i*nch_in+c];
+                        else audio_in[c][i] = 0;
                     }
                 }
             }
-            double *audio_buf_in[nch_in], *audio_buf_out[nch_out];
-            for (size_t c = 0; c < nch_in; c++)
-                audio_buf_in[c] = audio_in + c*window_size;
-            for (size_t c = 0; c < nch_out; c++)
-                audio_buf_out[c] = audio_out + c*window_size;
             if (time_samples == 0)
                 gettimeofday(&init_time, NULL);
             if (fptr) // call synthesis function
-                fptr(audio_buf_in, nch_in, audio_buf_out, nch_out, window_size, time_samples/(double)RATE);
+                fptr(audio_in, audio_out, window_size, time_samples/(double)RATE);
             {
                 lock_guard<mutex> data_lk(data_mtx);
                 // output region that overlaps with previous frame(s)
@@ -224,7 +215,7 @@ void generate_frames() {
                             overlap = atmp.front();
                             atmp.pop_front();
                         }
-                        aqueue.push_back(overlap + audio_out[i+c*window_size]);
+                        aqueue.push_back(overlap + audio_out[c][i]);
                     }
                 }
                 // if the hop is larger than the frame size, insert silence
@@ -234,7 +225,7 @@ void generate_frames() {
             // save region that overlaps with next frame
             for (int i = 0; i < int(window_size)-int(hop); i++) {
                 for (size_t c = 0; c < nch_out; c++) {
-                    float out_val = audio_out[hop+i+c*window_size];
+                    float out_val = audio_out[c][hop+i];
                     if (i*nch_out+c < atmp.size()) atmp[i*nch_out+c] += out_val;
                     else atmp.push_back(out_val);
                 }
