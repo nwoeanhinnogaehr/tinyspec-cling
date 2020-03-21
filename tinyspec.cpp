@@ -14,8 +14,10 @@
 #include<sys/time.h>
 #include<fcntl.h>
 #include<jack/jack.h>
+#ifdef USE_CLING
 #include"cling/Interpreter/Interpreter.h"
 #include"cling/Utils/Casting.h"
+#endif
 #include"osc.h"
 #include"synth.h"
 using namespace std;
@@ -67,6 +69,7 @@ void set_process_fn(func_t fn) {
     fptr = fn;
 }
 
+#ifdef USE_CLING
 void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, LLVMRESDIR, {},
             true); // disable runtime for simplicity
     interp.setDefaultOptLevel(2);
@@ -120,6 +123,7 @@ void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, L
         }
     }
 }
+#endif
 
 // fast fractional fourier transform
 // https://algassert.com/post/1710
@@ -307,5 +311,15 @@ void init_audio(int argc, char **argv) {
 int main(int argc, char **argv) {
     init_audio(argc, argv);
     thread worker(generate_frames);
+#ifdef USE_CLING
     init_cling(argc, argv);
+#else
+#ifdef HACK
+#include STR(HACK)
+    this_thread::sleep_until(chrono::time_point<chrono::system_clock>::max());
+#else
+    #error Not using cling but no hack specified. Compile with `./compile --no-cling hack.cpp`
+#endif
+#endif
 }
+
