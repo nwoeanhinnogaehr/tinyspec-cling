@@ -20,23 +20,31 @@
 #include"synth.h"
 using namespace std;
 
+#define STR_(x) #x
+#define STR(x) STR_(x)
+
 const char *LLVMRESDIR = "cling_bin"; // path to cling resource directory
 const char *CODE_BEGIN = "<<<";
 const char *CODE_END = ">>>";
-const char *SYNTH_MAIN = "process";
 
-size_t window_size;
-size_t new_window_size(1<<12); // initial size
-size_t hop(new_window_size/2);
-deque<float> aqueue, atmp, ainqueue;
-WaveBuf audio_in, audio_out;
-uint64_t time_samples = 0;
-size_t nch_in = 0, nch_out = 0, new_nch_in = 0, new_nch_out = 0;
-mutex frame_notify_mtx, // for waking up processing thread
-      exec_mtx, // guards user code exec
-      data_mtx; // guards aqueue, ainqueue
-condition_variable frame_notify;
-bool frame_ready = false;
+// This is in a namespace so we can cleanly access it from other compilation units with extern
+namespace internals {
+    size_t window_size;
+    size_t new_window_size(1<<12); // initial size
+    size_t hop(new_window_size/2);
+    deque<float> aqueue, atmp, ainqueue;
+    WaveBuf audio_in, audio_out;
+    uint64_t time_samples = 0;
+    size_t nch_in = 0, nch_out = 0, new_nch_in = 0, new_nch_out = 0;
+    mutex frame_notify_mtx, // for waking up processing thread
+          exec_mtx, // guards user code exec
+          data_mtx; // guards aqueue, ainqueue
+    condition_variable frame_notify;
+    bool frame_ready = false;
+    using func_t = function<void(WaveBuf&, WaveBuf&, int, double)>;
+    func_t fptr(nullptr);
+}
+using namespace internals;
 
 // builtins
 void set_hop(int new_hop) {
@@ -55,13 +63,15 @@ void next_hop_hz(uint32_t n, double hz) {
     new_window_size = n;
     set_hop(double(RATE)/hz);
 }
+void set_process_fn(func_t fn) {
+    fptr = fn;
+}
 
-using func_t = void(WaveBuf&, WaveBuf&, int, double);
-func_t* fptr(nullptr);
 void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, LLVMRESDIR, {},
             true); // disable runtime for simplicity
     interp.setDefaultOptLevel(2);
     interp.process( // preamble
+            "#define RATE " STR(RATE) "\n"
             "#include<complex>\n"
             "#include<iostream>\n"
             "#include<vector>\n"
@@ -74,6 +84,7 @@ void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, L
     interp.declare("void set_num_channels(size_t in, size_t out);");
     interp.declare("void skip_to_now();");
     interp.declare("void frft(FFTBuf &in, FFTBuf &out, double exponent);");
+    interp.declare("void set_process_fn(function<void(WaveBuf&, WaveBuf&, int, double)> fn);");
 
     // make a fifo called "cmd", which commands are read from
     const char *command_file = argc > 1 ? argv[1] : "cmd";
@@ -100,24 +111,7 @@ void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, L
             cerr << "execute: " << preview << "..." << endl;
 
             exec_mtx.lock();
-
-            // cling can't redefine functions, so replace the name of the entry point
-            // with a unique name
-            int name_loc = to_exec.find(SYNTH_MAIN);
-            if (name_loc != -1) {
-                string uniq;
-                interp.createUniqueName(uniq);
-                to_exec.replace(name_loc, strlen(SYNTH_MAIN), uniq);
-
-                if (cling::Interpreter::kSuccess == interp.process(to_exec)) {
-                    void *addr = interp.getAddressOfGlobal(uniq);
-                    fptr = cling::utils::VoidToFunctionPtr<func_t*>(addr);
-                    cerr << "swap " << SYNTH_MAIN << " to " << addr << endl;
-                }
-            } else {
-                interp.process(to_exec);
-            }
-
+            interp.process(to_exec);
             exec_mtx.unlock();
 
             // move to next block
@@ -130,10 +124,10 @@ void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, L
 // fast fractional fourier transform
 // https://algassert.com/post/1710
 void frft(FFTBuf &in, FFTBuf &out, double exponent) {
-    assert(in.fft_size == out.fft_size);
+    assert(in.size == out.size);
     assert(in.num_channels == in.num_channels);
     size_t num_channels = in.num_channels;
-    size_t fft_size = in.fft_size;
+    size_t fft_size = in.size;
     if (num_channels*fft_size == 0)
         return;
     size_t data_size = sizeof(cplx)*num_channels*fft_size;
