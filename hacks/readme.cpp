@@ -3,7 +3,7 @@ FFTBuf fft;
 // in and out are audio sample buffers
 // n is the number of samples in the frame
 // t is the time in seconds since the beginning of playback.
-set_process_fn([&](WaveBuf& in, WaveBuf& out, int n double t){
+set_process_fn([&](WaveBuf& in, WaveBuf& out, int n, double t){
     // Loop over frequency bins. Starting at 1 skips the DC offset.
     fft.resize(out.num_channels, n);
     for (int c = 0; c < 2; c++) {
