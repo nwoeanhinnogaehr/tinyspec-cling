@@ -50,31 +50,35 @@ For example, the following vim commands map F2 to execute the current paragraph 
 :map <F2> mcVip::w<Home>silent <End> !./send /tmp/ts-example<CR>`c
 :imap <F2> <Esc>mcVip::w<Home>silent <End> !./send /tmp/ts-example<CR>`ca
 ```
+Check out `doc/vscode.txt` for a basic method of using tinyspec with vscode.
+
 If you configure another editor, please contribute it here so other users can benefit!
 
 ## Usage
 
-For example, try executing the following code.
+For example, try executing the following code. You can also find this file as hacks/readme.cpp
 
 ```C++
+FFTBuf fft;
 // Called periodically to fill up a new buffer.
-// buf[0] is the left channel, and buf[1] is the right channel.
-// You should fill both elements of buf with n complex numbers.
+// in and out are audio sample buffers
+// n is the number of samples in the frame
 // t is the time in seconds since the beginning of playback.
-// The 0th bin is the DC offset. Usually this should be left at a value of 0.
-// The 1st bin is the lowest frequency, and the n-1th is the highest frequency.
-// buf is zeroed out before this function is called.
-extern "C" void process(cplx **in, int nch_in, cplx **out, int nch_out, int n, double t){
+set_process_fn([&](WaveBuf& in, WaveBuf& out, int n, double t){
     // Loop over frequency bins. Starting at 1 skips the DC offset.
-    for (int i = 1; i < n; i++) {
-        cplx x = sin(t+pow(i,1+sin(t)*0.6))/2 // Fun little formula
-            /i; // Scale magnitude by bin number to prevent loud high frequency noises.
-        for (int c = 0; c < nch_out; c++)
-            out[c][i] = x; // Fill output buffer
+    fft.resize(out.num_channels, n);
+    for (int c = 0; c < 2; c++) {
+        for (int i = 1; i < n; i++) {
+            cplx x = sin(i*pow(1.0/(i+1), 1.0+sin(t*i*M_PI/8+c)*0.5))*25 // Some random formula
+                /pow(i,0.9); // Scale magnitude to prevent loud high frequency noises.
+            fft[c][i] = x; // Fill output buffer
+        }
     }
-    next_hop_ratio(1<<10); // Set FFT size for the next frame
-    // i.e. the value of n in the next call will be 2^9
-}
+    frft(fft, fft, -1.0); // Perform in-place inverse FFT
+    out.fill_from(fft); // Copy real part to output
+    window_hann(out); // Apply Hann window
+    next_hop_ratio(4096); // Set FFT size for the next frame
+});
 ```
 
 Here, `cplx` is just an alias for `std::complex<double>`.

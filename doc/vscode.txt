@@ -1,0 +1,32 @@
+Press Ctrl-P, type
+ext install ryuta46.multi-command
+
+Windows %APPDATA%\Code\User\settings.json
+macOS $HOME/Library/Application Support/Code/User/settings.json
+Linux $HOME/.config/Code/User/settings.json
+
+Edit settings.json:
+    "multiCommand.commands": [
+        {
+            "command": "multiCommand.tinyspecExecute",
+            "interval": 30,
+            "sequence": [
+                { "command": "workbench.action.terminal.sendSequence", "args": { "text": "./send cmd1\n" } },
+                "workbench.action.terminal.runSelectedText",
+                { "command": "workbench.action.terminal.sendSequence", "args": { "text": "\u0004" } },
+            ]
+        },
+    ]
+
+Edit keybindings.json:
+    { 
+        "key": "F1", 
+        "command": "extension.multiCommand.execute" , 
+        "args": { "command": "multiCommand.tinyspecExecute" },
+        "when": "editorTextFocus"
+    }
+
+In a terminal (anywhere), run ./tinyspec cmd1
+Now, open a new terminal (Ctrl-Shift-`), and cd to tinyspec repo directory.
+
+Select some text in vscode and press F1. It should get sent to the tinyspec instance.
