@@ -206,7 +206,7 @@ void generate_frames() {
             {
                 lock_guard<mutex> data_lk(data_mtx);
                 // output region that overlaps with previous frame(s)
-                for (size_t i = 0; i < min(hop, window_size); i++) {
+                for (size_t i = 0; i < min(hop, audio_out.size); i++) {
                     for (size_t c = 0; c < nch_out; c++) {
                         float overlap = 0;
                         if (!atmp.empty()) {
@@ -217,11 +217,11 @@ void generate_frames() {
                     }
                 }
                 // if the hop is larger than the frame size, insert silence
-                for (int i = 0; i < int(nch_out)*(int(hop)-int(window_size)); i++)
+                for (int i = 0; i < int(nch_out)*(int(hop)-int(audio_out.size)); i++)
                     aqueue.push_back(0);
             }
             // save region that overlaps with next frame
-            for (int i = 0; i < int(window_size)-int(hop); i++) {
+            for (int i = 0; i < int(audio_out.size)-int(hop); i++) {
                 for (size_t c = 0; c < nch_out; c++) {
                     float out_val = audio_out[c][hop+i];
                     if (i*nch_out+c < atmp.size()) atmp[i*nch_out+c] += out_val;

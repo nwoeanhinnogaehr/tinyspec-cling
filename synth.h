@@ -70,8 +70,14 @@ struct FFTBuf {
     cplx* operator[](int index) { return data + index*size; }
 };
 
+void window_hann(WaveBuf &data) {
+    for (size_t i = 0; i < data.size; i++) {
+        double w = 0.5*(1-cos(2*M_PI*i/data.size)); // Hann
+        for (size_t j = 0; j < data.num_channels; j++)
+            data[j][i] *= w;
+    }
+}
 void window_sqrt_hann(WaveBuf &data) {
-    //todo cache windows somehow
     for (size_t i = 0; i < data.size; i++) {
         double w = sqrt(0.5*(1-cos(2*M_PI*i/data.size))); // Hann
         for (size_t j = 0; j < data.num_channels; j++)
@@ -92,7 +98,7 @@ struct PVBuf {
     size_t size = 0;
     size_t num_channels = 0;
     PVBuf() { }
-    PVBuf(size_t num_channels, size_t size) { }
+    PVBuf(size_t num_channels, size_t size) { resize(num_channels, size); }
     ~PVBuf() { if (data) free(data); }
     void resize(size_t num_channels, size_t size) {
         if (this->size*this->num_channels != size*num_channels) {
@@ -184,7 +190,7 @@ struct PhaseVocoder {
         other.resize(num_channels, size);
         for (size_t i = 0; i < num_channels; i++) {
             for (size_t j = 0; j < size; j++) {
-                double phase = frequency_to_phase(j, data[i][j].freq);
+                double phase = frequency_to_phase(data[i][j].freq);
                 phase_sum[i][j] += phase;
                 other[i][j] = std::polar(data[i][j].amp, phase_sum[i][j]);
             }
@@ -197,7 +203,7 @@ struct PhaseVocoder {
         else qpd -= qpd & 1;
         return (bin + size/hop()*(delta - M_PI*qpd)/2.0/M_PI)*RATE/size;
     }
-    double frequency_to_phase(size_t bin, double freq) {
+    double frequency_to_phase(double freq) {
         return 2.0*M_PI*freq/RATE*hop();
     }
     void shift(std::function<double(double)> fn) {
