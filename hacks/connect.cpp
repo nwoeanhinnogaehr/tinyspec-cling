@@ -23,3 +23,15 @@ system("jack_connect tinyspec_cmd1:out1 renoise:input_01_right");
 // Revert pulse to normal
 system("jack_connect \"PulseAudio JACK Sink:front-left\" system:playback_1");
 system("jack_connect \"PulseAudio JACK Sink:front-right\" system:playback_2");
+
+// system in to renoise
+system("jack_connect system:capture_1 renoise:input_01_left");
+system("jack_connect system:capture_2 renoise:input_01_right");
+
+// system in through tinyspec to renoise
+system("jack_disconnect system:capture_1 renoise:input_01_left");
+system("jack_disconnect system:capture_2 renoise:input_01_right");
+system("jack_connect system:capture_1 tinyspec_cmd1:in0");
+system("jack_connect system:capture_2 tinyspec_cmd1:in1");
+system("jack_connect tinyspec_cmd1:out0 renoise:input_01_left");
+system("jack_connect tinyspec_cmd1:out1 renoise:input_01_right");
