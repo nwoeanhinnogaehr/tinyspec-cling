@@ -9,6 +9,32 @@ Things that you can do easily with tinyspec include:
  - use these synthesizers and effects with DAWs, other synthesizers, etc using JACK
  - do all of this in a live performance (with some caveats)
 
+**What is an overlap-add (re)synthesizer?**
+You define a function which is called periodically to process a *frame* of audio.
+The rate at which the function is called, as well as the length of a frame can be dynamically adjusted.
+If multiple frames overlap in time, some of the input that they receive will be the same, and their outputs will be mixed.
+
+For example, you could set the frame size to 1 and the hop size to 1 if you want to process a single sample at a time.
+You can do granular synthesis of a wave at a specific frequency by e.g. setting the frame size to 100 and the hop to 440Hz.
+Or, you could set the frame size to 1024 and the hop size to 256 (ratio 1/4) for standard use of a phase vocoder.
+It's even possible to dynamically adjust the frame size and the hop according to some function. The amount of latency is automatically
+adjusted by inserting silence to the input as needed.
+
+Visually, in the following diagram the hop is 3 and the frame size starts at 7 but increments by 1 each frame.
+The audio output from the frames which overlap vertically will be added together before sending it out via JACK.
+```
+  Time-------->
+F |-----|
+r    |------|
+a       |-------|
+m          |--------|
+e             |---------|
+s                |----------|
+|                   |-----------|
+|                      |------------|
+V                         ...
+```
+
 This is a fork of [tinyspec](https://github.com/nwoeanhinnogaehr/tinyspec), which was an experiment in trying to make the smallest useful FFT synthesizer.
 This version adds live-coding support via [cling](https://root.cern.ch/cling), among many other handy features.
 Cling is quite large and only officially supports Ubuntu (but probably works elsewhere),
@@ -107,6 +133,8 @@ set_process_fn([&](WaveBuf& in, WaveBuf& out, int n, double t){
 ```
 
 Here, `cplx` is just an alias for `std::complex<double>`.
+
+See `synth.h` for info about working with buffers and the built-in audio processing library.
 
 Note the call to `next_hop_ratio` at the end---this is one of 3 built in functions that can be used to
 manipulate the parameters of the FFT synthesizer.
