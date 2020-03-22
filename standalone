@@ -1,0 +1,6 @@
+#!/bin/bash
+set -e
+
+RATE=44100
+clang++ -g -DRATE=$RATE -DHACK="$1" -DOSCPKT_OSTREAM_OUTPUT -O3 -Wall -Wextra tinyspec.cpp -o "${1%%.*}" -ljack -lfftw3 -lm -lpthread
+hacks/readme

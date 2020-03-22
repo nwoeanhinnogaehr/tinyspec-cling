@@ -1,23 +1,48 @@
-A tiny C++ live-coded frequency domain synthesizer for linux.
+A tiny C++ live-coded overlap-add (re)synthesizer for Linux.
+Things that you can do easily with tinyspec include:
 
-This is a fork of [tinyspec](https://github.com/nwoeanhinnogaehr/tinyspec) which adds live-coding support
-via [cling](https://root.cern.ch/cling).
+ - create novel audio effects using FFT, phase vocoders and more, and control them with OSC
+ - create synthesizers
+ - granular synthesis
+ - bytebeats (time and frequency domain)
+ - control other software with OSC
+ - use these synthesizers and effects with DAWs, other synthesizers, etc using JACK
+ - do all of this in a live performance (with some caveats)
+
+This is a fork of [tinyspec](https://github.com/nwoeanhinnogaehr/tinyspec), which was an experiment in trying to make the smallest useful FFT synthesizer.
+This version adds live-coding support via [cling](https://root.cern.ch/cling), among many other handy features.
+Cling is quite large and only officially supports Ubuntu (but probably works elsewhere),
+so if you don't want to use it, you can still use this
+to compile your code into a standalone executable, without live-coding support.
 
 ## Install
 Download an appropriate cling package from https://root.cern.ch/download/cling/
 and extract it to a directory called `cling_bin`.
 (If you're using Arch, the Ubuntu 18 package gives some warnings but basically seems to work.)
+This step is not necessary if you only want to use standalone mode (see below).
 
 [JACK Audio Connection Kit](http://www.jackaudio.org/) is used for audio output, and [FFTW3](http://www.fftw.org/) is required for synthesis.
-After both are installed, compile tinyspec by cloning this repository and running `./compile`.
 
-## Architecture
+## Standalone mode
+The easiest way to get started is using standalone mode. For example, try
+```
+$ ./standalone hacks/readme.cpp
+```
+Then in a separate terminal, connect the program to your speakers by running
+```
+$ jack_connect tinyspec_cmd:out0 system:playback_1
+$ jack_connect tinyspec_cmd:out1 system:playback_2
+```
+See `hacks/connect.cpp` for examples of how you can make your program automatically connect inputs/outputs.
+You can also do this through a JACK GUI such as [Catia](https://kx.studio/Applications:Catia).
 
-Running the application starts a server which listens for code written to a named pipe.
+## Live-coding mode
+Running the application in live coding mode starts a server which listens for code written to a named pipe.
 You can start as many servers as you want and route their inputs/outputs using
-JACK. I recommend using a JACK GUI such as [Catia](https://kx.studio/Applications:Catia).
+JACK. To do this, you can use a JACK GUI such as [Catia](https://kx.studio/Applications:Catia).
+Alternatively see `hacks/connect.cpp` for examples of how you can make your program automatically connect inputs/outputs.
 
-## Run
+Compile tinyspec by running `./compile`.
 
 To run the server do:
 ```
@@ -29,11 +54,11 @@ If all goes well you should see
 ```
 Playing...
 ```
-There may be some warnings from cling afterwards, which may or may not be safe to ignore!
+There may be some warnings from cling afterwards, which may or may not be safe to ignore! (cling is very buggy)
 You won't hear anything yet for two reasons: the application is not
 connected to your speakers (do this through JACK) and we haven't sent it any code yet.
 
-## Editor setup
+### Editor setup
 The `send` program can be invoked on the command line to execute code on the server.
 It takes the path to the server's command pipe as an argument.
 
@@ -54,7 +79,7 @@ Check out `doc/vscode.txt` for a basic method of using tinyspec with vscode.
 
 If you configure another editor, please contribute it here so other users can benefit!
 
-## Usage
+### Usage
 
 For example, try executing the following code. You can also find this file as hacks/readme.cpp
 
@@ -104,9 +129,9 @@ the synthesizer to discard buffered data and skip to the present moment
 by calling `void skip_to_now();`
 
 See the hacks directory for some other examples.
-Even more examples---which may require adaptation for this fork---are available as part of [tinyspec](https://github.com/nwoeanhinnogaehr/tinyspec).
+Even more examples---which require adaptation for this fork---are available as part of [tinyspec](https://github.com/nwoeanhinnogaehr/tinyspec).
 
 ## OSC support
 
 There is currently experimental support for sending/receiving Open Sound Control messages.
-See `hacks/osc.cpp` for details.
+See `hacks/osc.cpp` and `hacks/tidal.cpp` for details.
