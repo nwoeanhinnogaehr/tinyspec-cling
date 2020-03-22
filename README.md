@@ -34,6 +34,10 @@ s                |----------|
 |                      |------------|
 V                         ...
 ```
+You probably wouldn't want to literally do this, because the frames would quickly grow to an unwieldy length
+and the output would likely clip from having too many frames overlap at once. So, you do have to be a bit careful
+about what you're doing. Also, be aware that things like division by zero and null pointer dereferences will crash your program.
+Hence why you should be particularly vigilant if you decide live code this in a performance.
 
 This is a fork of [tinyspec](https://github.com/nwoeanhinnogaehr/tinyspec), which was an experiment in trying to make the smallest useful FFT synthesizer.
 This version adds live-coding support via [cling](https://root.cern.ch/cling), among many other handy features.
