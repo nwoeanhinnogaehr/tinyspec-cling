@@ -20,7 +20,11 @@
 #endif
 #include"osc.h"
 #include"synth.h"
+#ifdef HACK
+#include"osc_rt.h"
+#endif
 using namespace std;
+
 
 #define STR_(x) #x
 #define STR(x) STR_(x)

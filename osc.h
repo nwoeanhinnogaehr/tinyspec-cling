@@ -4,6 +4,8 @@
 #include"oscpkt/udp.hh"
 using namespace oscpkt;
 using namespace std;
+bool debug_osc = false;
+#define OSC_H
 
 // OSC stuff
 // If this looks ridiculous it's because I had to work around a very odd cling bug.
@@ -66,7 +68,7 @@ vector<shared_ptr<RecvMsg>> osc_recv(int port, double t, const string &path) {
     if (res.second) {
         sock.bindTo(port);
         if (!sock.isOk()) cerr << "Error binding: " << sock.errorMessage() << endl;
-        else cerr << "Server started!" << endl;
+        else cerr << "OSC Server started on port " << std::to_string(port) << endl;
     }
     PacketReader pr;
     while (sock.receiveNextPacket(0)) {
@@ -77,6 +79,8 @@ vector<shared_ptr<RecvMsg>> osc_recv(int port, double t, const string &path) {
     }
     for (auto it = queue.begin(); it != queue.end();) {
         Message &msg = *it;
+        if (debug_osc)
+            cout << msg << endl;
         if (msg.match(path) && msg.timeTag() < timestamp) {
             Message *copy = new Message;
             *copy = msg;
