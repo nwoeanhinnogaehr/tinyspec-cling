@@ -3,7 +3,7 @@ set -e
 
 RATE=44100
 
-CXX=clang++
+CXX=cling_bin/bin/clang++
 CXX_FLAGS="-std=c++11 -O3"
 if [ -n "$USE_LIBCPP" ]; then 
     CXX_FLAGS+=" -stdlib=libc++"
