@@ -1,7 +1,6 @@
 #!/bin/bash
 
 # https://stackoverflow.com/questions/25010369/wget-curl-large-file-from-google-drive
-cd tinyspec-cling
 fileid="1oX-muhinB7Cwa6i9d32G1G9_r396InbL"
 filename="cling_bin"
 fileext=".tar.bz2"
