@@ -49,6 +49,7 @@ namespace internals {
     bool frame_ready = false;
     using func_t = function<void(WaveBuf&, WaveBuf&, int, double)>;
     func_t fptr(nullptr);
+    string client_name;
 }
 using namespace internals;
 
@@ -85,6 +86,7 @@ void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, L
             "#include\"osc_rt.h\"\n"
             "#include\"synth.h\"\n"
             "using namespace std;\n");
+    interp.process("#define CLIENT_NAME \"" + client_name + "\"");
     interp.declare("void next_hop_ratio(uint32_t n, double hop_ratio=0.25);");
     interp.declare("void next_hop_samples(uint32_t n, uint32_t h);");
     interp.declare("void next_hop_hz(uint32_t n, double hz);");
@@ -299,7 +301,7 @@ void skip_to_now() {
 
 void init_audio(int argc, char **argv) {
     const char *command_file = argc > 1 ? argv[1] : "cmd";
-    string client_name = string("tinyspec_") + command_file;
+    client_name = string("tinyspec_") + command_file;
     jack_status_t status;
     client = jack_client_open(client_name.c_str(), JackNullOption, &status);
     if (!client) {

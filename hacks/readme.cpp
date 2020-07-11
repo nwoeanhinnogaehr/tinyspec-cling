@@ -1,3 +1,7 @@
+// Connect to the speakers
+system("jack_connect " CLIENT_NAME ":out0 system:playback_1");
+system("jack_connect " CLIENT_NAME ":out1 system:playback_2");
+
 // Called periodically to fill up a new buffer.
 // in and out are audio sample buffers
 // n is the number of samples in the frame
@@ -6,7 +10,7 @@ set_process_fn([&](WaveBuf& in, WaveBuf& out, int n, double t){
     FFTBuf fft;
     fft.resize(out.num_channels, n);
     // Loop over frequency bins. Starting at 1 skips the DC offset.
-    for (int c = 0; c < 2; c++) {
+    for (int c = 0; c < out.num_channels; c++) {
         for (int i = 1; i < n; i++) {
             cplx x = sin(i*pow(1.0/(i+1), 1.0+sin(t*i*M_PI/8+c)*0.5))*25 // Some random formula
                 /pow(i,0.9); // Scale magnitude to prevent loud high frequency noises.
