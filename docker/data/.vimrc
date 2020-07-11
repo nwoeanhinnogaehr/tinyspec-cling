@@ -4,6 +4,7 @@ set cindent
 set tabstop=4
 set shiftwidth=4
 set expandtab
+set mouse=a
 
 :map <F1> mcVip::w<Home>silent <End> !./send cmd1<CR>`c
 :imap <F1> <Esc>mcVip::w<Home>silent <End> !./send cmd1<CR>`ca
