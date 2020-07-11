@@ -7,10 +7,9 @@ RUN apt-get update && \
 USER ts
 WORKDIR /home/ts
 COPY data/get_cling.sh /home/ts/
-RUN ./get_cling.sh
 RUN git clone https://github.com/nwoeanhinnogaehr/tinyspec-cling && \
-    mv cling_bin tinyspec-cling/cling_bin && \
     cd tinyspec-cling && \
+    ../get_cling.sh && \
     ./compile
 COPY data/startup.sh data/.vimrc data/.tmux.conf /home/ts/
 

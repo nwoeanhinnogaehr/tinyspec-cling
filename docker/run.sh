@@ -4,7 +4,8 @@
 jack_load netmanager
 
 # start container
-docker run -it --detach --user=ts --name=tinyspec --network=host --rm tinyspec
+docker pull nwoeanhinnogaehr/tinyspec
+docker run -it --detach --user=ts --name=tinyspec --network=host --rm nwoeanhinnogaehr/tinyspec
 echo "waiting for jack..."
 sleep 3
 
