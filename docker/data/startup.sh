@@ -5,6 +5,7 @@ echo "starting JACK..."
 ulimit -l 65536 # workaround for bus error when starting jackd
 jackd -r -d net -a 127.0.0.1 -C ${2:-2} -P ${3:-2} -n tinyspec &
 jack_wait -w
+nc 127.0.0.1 44100 -z
 
 filename=${1:-hacks/readme.cpp}
 
