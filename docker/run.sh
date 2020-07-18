@@ -5,7 +5,17 @@ jack_load netmanager
 
 # start container
 docker pull nwoeanhinnogaehr/tinyspec
-docker run -it --detach --user=ts --name=tinyspec --network=host --rm nwoeanhinnogaehr/tinyspec
+netdate=$(date -d $(docker inspect -f '{{ .Created }}' nwoeanhinnogaehr/tinyspec) +%s)
+localdate=$(date -d $(docker inspect -f '{{ .Created }}' tinyspec) +%s 2>/dev/null)
+if [ ${localdate:-0} -ge $netdate ];
+then
+    echo "Using local build"
+    container=tinyspec
+else
+    echo "Using docker hub build"
+    container=nwoeanhinnogaehr/tinyspec
+fi
+docker run -it --detach --user=ts --name=tinyspec --network=host --rm $container $@
 echo "waiting for jack..."
 sleep 3
 
