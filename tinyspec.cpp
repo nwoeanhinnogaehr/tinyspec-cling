@@ -12,6 +12,7 @@
 #include<thread>
 #include<sys/stat.h>
 #include<sys/time.h>
+#include<csignal>
 #include<fcntl.h>
 #include<jack/jack.h>
 #ifdef USE_CLING
@@ -49,6 +50,7 @@ namespace internals {
     bool frame_ready = false;
     using func_t = function<void(WaveBuf&, WaveBuf&, int, double)>;
     func_t fptr(nullptr);
+    const char *command_file;
     string client_name;
 }
 using namespace internals;
@@ -96,7 +98,6 @@ void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, L
     interp.declare("void set_process_fn(function<void(WaveBuf&, WaveBuf&, int, double)> fn);");
 
     // make a fifo called "cmd", which commands are read from
-    const char *command_file = argc > 1 ? argv[1] : "cmd";
     mkfifo(command_file, 0700);
     int fd = open(command_file, O_RDONLY);
 
@@ -299,9 +300,7 @@ void skip_to_now() {
     aqueue.resize(0);
 }
 
-void init_audio(int argc, char **argv) {
-    const char *command_file = argc > 1 ? argv[1] : "cmd";
-    client_name = string("tinyspec_") + command_file;
+void init_audio() {
     jack_status_t status;
     client = jack_client_open(client_name.c_str(), JackNullOption, &status);
     if (!client) {
@@ -314,8 +313,22 @@ void init_audio(int argc, char **argv) {
     cout << "Playing..." << endl;
 }
 
+sighandler_t prev_handlers[32];
+void at_exit(int i) {
+    cout << "Cleaning up... " << endl;
+    jack_deactivate(client);
+    unlink(command_file);
+    signal(i, prev_handlers[i]);
+    raise(i);
+}
+
 int main(int argc, char **argv) {
-    init_audio(argc, argv);
+    command_file = argc > 1 ? argv[1] : "cmd";
+    client_name = string("tinyspec_") + command_file;
+    prev_handlers[SIGINT] = signal(SIGINT, at_exit);
+    prev_handlers[SIGABRT] = signal(SIGABRT, at_exit);
+    prev_handlers[SIGTERM] = signal(SIGTERM, at_exit);
+    init_audio();
     thread worker(generate_frames);
 #ifdef USE_CLING
     init_cling(argc, argv);
