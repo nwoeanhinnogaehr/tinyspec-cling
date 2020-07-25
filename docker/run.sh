@@ -1,5 +1,11 @@
 #!/bin/bash
 
+docker info > /dev/null 2>&1
+if [[ $? -ne 0 ]]; then
+    echo "Docker is not running"
+    exit 1
+fi
+
 # load jack network module on host
 jack_load netmanager
 
@@ -15,7 +21,7 @@ else
     echo "Using docker hub build"
     container=nwoeanhinnogaehr/tinyspec
 fi
-docker run -it --detach --user=ts --name=tinyspec --network=host --rm $container $@
+docker run -it --detach --user=ts --name=tinyspec --network=host --rm --mount type=bind,source=$(pwd)/$(dirname $0)/../hacks,target=/home/ts/tinyspec-cling/hacks $container $@
 echo "waiting for jack..."
 nc -l -p 44100
 
