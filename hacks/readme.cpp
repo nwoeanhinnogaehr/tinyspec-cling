@@ -1,4 +1,5 @@
 // Connect to the speakers
+set_num_channels(0, 2);
 system("jack_connect " CLIENT_NAME ":out0 system:playback_1");
 system("jack_connect " CLIENT_NAME ":out1 system:playback_2");
 

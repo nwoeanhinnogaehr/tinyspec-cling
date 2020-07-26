@@ -36,6 +36,7 @@ const char *CODE_END = ">>>";
 
 // This is in a namespace so we can cleanly access it from other compilation units with extern
 namespace internals {
+    size_t system_frame_size = 0;
     size_t window_size;
     size_t new_window_size(1<<12); // initial size
     size_t hop(new_window_size/2);
@@ -195,6 +196,8 @@ void generate_frames() {
                 }
                 if (ainqueue.size() < nch_in*(hop+window_size))
                     break;
+                if (aqueue.size() >= system_frame_size * nch_out)
+                    break;
                 size_t sz_tmp = ainqueue.size();
                 for (size_t i = 0; i < min(nch_in*hop, sz_tmp); i++)
                     ainqueue.pop_front();
@@ -247,14 +250,15 @@ vector<jack_port_t *> out_ports;
 
 int audio_cb(jack_nframes_t len, void *) {
     lock_guard<mutex> data_lk(data_mtx);
+    system_frame_size = len;
     float *in_bufs[in_ports.size()];
     float *out_bufs[out_ports.size()];
-    for (size_t i = 0; i < nch_in; i++)
+    for (size_t i = 0; i < in_ports.size(); i++)
         in_bufs[i] = (float*) jack_port_get_buffer(in_ports[i], len);
-    for (size_t i = 0; i < nch_out; i++)
+    for (size_t i = 0; i < out_ports.size(); i++)
         out_bufs[i] = (float*) jack_port_get_buffer(out_ports[i], len);
     for (size_t i = 0; i < len; i++)
-        for (size_t c = 0; c < nch_in; c++)
+        for (size_t c = 0; c < in_ports.size(); c++)
             ainqueue.push_back(in_bufs[c][i]);
     {
         unique_lock<mutex> lk(frame_notify_mtx);
@@ -262,7 +266,7 @@ int audio_cb(jack_nframes_t len, void *) {
     }
     frame_notify.notify_one();
     for (size_t i = 0; i < len; i++)
-        for (size_t c = 0; c < nch_out; c++) {
+        for (size_t c = 0; c < out_ports.size(); c++) {
             if (!aqueue.empty()) {
                 out_bufs[c][i] = aqueue.front();
                 aqueue.pop_front();
@@ -274,6 +278,10 @@ int audio_cb(jack_nframes_t len, void *) {
 }
 
 void set_num_channels(size_t in, size_t out) {
+    lock_guard<mutex> data_lk(data_mtx);
+    ainqueue.clear();
+    aqueue.clear();
+    //TODO should probably clear atmp too
     for (size_t i = in; i < new_nch_in; i++) {
         jack_port_unregister(client, in_ports.back());
         in_ports.pop_back();
