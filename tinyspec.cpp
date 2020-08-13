@@ -332,7 +332,12 @@ void at_exit(int i) {
 
 int main(int argc, char **argv) {
     command_file = argc > 1 ? argv[1] : "cmd";
+    //TODO what if JACK assigns us a different client name than requested?
+#ifdef HACK
+    client_name = string("tinyspec_") + STR(HACK);
+#else
     client_name = string("tinyspec_") + command_file;
+#endif
     prev_handlers[SIGINT] = signal(SIGINT, at_exit);
     prev_handlers[SIGABRT] = signal(SIGABRT, at_exit);
     prev_handlers[SIGTERM] = signal(SIGTERM, at_exit);
@@ -342,6 +347,7 @@ int main(int argc, char **argv) {
     init_cling(argc, argv);
 #else
 #ifdef HACK
+#define CLIENT_NAME "tinyspec_" STR(HACK)
 #include STR(HACK)
     this_thread::sleep_until(chrono::time_point<chrono::system_clock>::max());
 #else
