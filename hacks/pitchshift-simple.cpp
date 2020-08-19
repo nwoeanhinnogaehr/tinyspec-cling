@@ -1,3 +1,4 @@
+connect(CLIENT_NAME, "system");
 set_process_fn([&](WaveBuf &in, WaveBuf &out, int n, double t) {
     double shift = sin(t)/2+1;
     window_hann(in);

@@ -2,6 +2,8 @@
 // Try feeding it with:
 // $ watch oscsend localhost 9999 /play d 110
 
+set_num_channels(0, 2);
+connect(CLIENT_NAME, "system");
 set_process_fn([&](WaveBuf &in, WaveBuf &out, int n, double t) {
     static int trigger_time = -99999; //prevent trigger at t=0
     static double freq = 220;

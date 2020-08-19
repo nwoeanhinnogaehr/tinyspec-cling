@@ -1,3 +1,4 @@
+connect(CLIENT_NAME, "system");
 PhaseVocoder pv;
 
 set_process_fn([&](WaveBuf &in, WaveBuf &out, int n, double t) {

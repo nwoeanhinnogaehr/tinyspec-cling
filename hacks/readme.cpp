@@ -1,7 +1,6 @@
 // Connect to the speakers
-set_num_channels(0, 2);
-system("jack_connect " CLIENT_NAME ":out0 system:playback_1");
-system("jack_connect " CLIENT_NAME ":out1 system:playback_2");
+set_num_channels(0, 2); // no inputs, stereo output
+connect(CLIENT_NAME, "system");
 
 // Called periodically to fill up a new buffer.
 // in and out are audio sample buffers

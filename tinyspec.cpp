@@ -30,6 +30,10 @@ using namespace std;
 #define STR_(x) #x
 #define STR(x) STR_(x)
 
+#define CONNECT_MIN 0
+#define CONNECT_MAX 1
+#define CONNECT_ALL 2
+
 const char *LLVMRESDIR = "cling_bin"; // path to cling resource directory
 const char *CODE_BEGIN = "<<<";
 const char *CODE_END = ">>>";
@@ -83,13 +87,18 @@ void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, L
     interp.setDefaultOptLevel(2);
     interp.process( // preamble
             "#define RATE " STR(RATE) "\n"
+            "#define CONNECT_MIN 0\n"
+            "#define CONNECT_MAX 1\n"
+            "#define CONNECT_ALL 2\n"
             "#include<complex>\n"
             "#include<iostream>\n"
             "#include<vector>\n"
             "#include\"osc_rt.h\"\n"
             "#include\"synth.h\"\n"
             "using namespace std;\n");
-    interp.process("#define CLIENT_NAME \"" + client_name + "\"");
+    interp.process("#define CLIENT_NAME string(\"" + client_name + "\")");
+    interp.declare("void connect(string a, string b, string filter_a=\"\", string filter_b=\"\", int mode=CONNECT_MAX);");
+    interp.declare("void disconnect(string a, string b, string filter_a=\"\", string filter_b=\"\", int mode=CONNECT_MAX);");
     interp.declare("void next_hop_ratio(uint32_t n, double hop_ratio=0.25);");
     interp.declare("void next_hop_samples(uint32_t n, uint32_t h);");
     interp.declare("void next_hop_hz(uint32_t n, double hz);");
@@ -211,8 +220,10 @@ void generate_frames() {
             }
             if (time_samples == 0)
                 gettimeofday(&init_time, NULL);
-            if (fptr) // call synthesis function
+            if (fptr) { // call synthesis function
                 fptr(audio_in, audio_out, window_size, time_samples/(double)RATE);
+                time_samples += hop;
+            }
             {
                 lock_guard<mutex> data_lk(data_mtx);
                 // output region that overlaps with previous frame(s)
@@ -239,7 +250,6 @@ void generate_frames() {
                 }
             }
 
-            time_samples += hop;
         }
     }
 }
@@ -302,6 +312,104 @@ void set_num_channels(size_t in, size_t out) {
     new_nch_out = out;
 }
 
+struct PortPattern {
+    string regex;
+    size_t idx_s, idx_t;
+    unsigned long flags;
+};
+size_t parse_int_or(string s, size_t otherwise) {
+    if (s.size() == 0)
+        return otherwise;
+    try { return stoi(s); }
+    catch (...) { cerr << "failed to parse \"" << s << "\" as integer" << endl; }
+    return otherwise;
+}
+PortPattern parse_port_pattern(string filter) {
+    PortPattern p;
+    p.regex = ":.*";
+    p.idx_s = 0;
+    p.idx_t = -1;
+    p.flags = JackPortIsOutput | JackPortIsInput; 
+    if (filter.size() == 0);
+    else if (filter[0] == ':') {
+        p.regex = filter;
+    } else {
+        size_t range_idx = 1;
+        if (filter[0] == 'i')
+            p.flags = JackPortIsInput;
+        else if (filter[0] == 'o')
+            p.flags = JackPortIsOutput;
+        else
+            range_idx = 0;
+        p.regex = ":.*";
+        int idx = filter.find(',');
+        if (idx == -1) {
+            p.idx_s = parse_int_or(filter.substr(range_idx), 0);
+            p.idx_t = parse_int_or(filter.substr(range_idx), -2) + 1;
+        } else {
+            p.idx_s = parse_int_or(filter.substr(range_idx, idx), 0);
+            p.idx_t = parse_int_or(filter.substr(idx+1), -1);
+        }
+    }
+    return p;
+}
+
+void dis_connect_impl(bool con, string client_a, string client_b, string filter_a, string filter_b, int mode) {
+    const char* what = con ? "connect" : "disconnect";
+    auto fn = con ? jack_connect : jack_disconnect;
+    PortPattern a_ptn = parse_port_pattern(filter_a);
+    PortPattern b_ptn = parse_port_pattern(filter_b);
+    const char** ports_a_in = jack_get_ports(client, (client_a + a_ptn.regex).c_str(),
+            JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput);
+    const char** ports_a_out = jack_get_ports(client, (client_a + a_ptn.regex).c_str(),
+            JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput);
+    const char** ports_b_in = jack_get_ports(client, (client_b + b_ptn.regex).c_str(),
+            JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput);
+    const char** ports_b_out = jack_get_ports(client, (client_b + b_ptn.regex).c_str(),
+            JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput);
+    size_t ports_a_in_len = 0; for (int i = 0; ports_a_in && ports_a_in[i]; i++) ports_a_in_len++;
+    size_t ports_a_in_len_x = min(ports_a_in_len, a_ptn.idx_t-a_ptn.idx_s);
+    size_t ports_a_out_len = 0; for (int i = 0; ports_a_out && ports_a_out[i]; i++) ports_a_out_len++;
+    size_t ports_a_out_len_x = min(ports_a_out_len, a_ptn.idx_t-a_ptn.idx_s);
+    size_t ports_b_in_len = 0; for (int i = 0; ports_b_in && ports_b_in[i]; i++) ports_b_in_len++;
+    size_t ports_b_in_len_x = min(ports_b_in_len, b_ptn.idx_t-b_ptn.idx_s);
+    size_t ports_b_out_len = 0; for (int i = 0; ports_b_out && ports_b_out[i]; i++) ports_b_out_len++;
+    size_t ports_b_out_len_x = min(ports_b_out_len, b_ptn.idx_t-b_ptn.idx_s);
+    auto lenfn = [=](size_t a, size_t b) { return mode ? max(a, b) : min(a, b); };
+    int count = 0;
+    if ((a_ptn.flags & JackPortIsInput) && (b_ptn.flags & JackPortIsOutput)
+            && ports_b_out_len_x && ports_a_in_len_x)
+        for (size_t i = 0; i < lenfn(ports_a_in_len_x, ports_b_out_len_x); i++) {
+            for (size_t j = i; j < i + (mode == CONNECT_ALL ? lenfn(ports_a_in_len_x, ports_b_out_len_x) : 1); j++) {
+                fn(client, ports_b_out[(b_ptn.idx_s+i%ports_b_out_len_x)%ports_b_out_len],
+                        ports_a_in[(a_ptn.idx_s+j%ports_a_in_len_x)%ports_a_in_len]);
+                cerr << what << " " << ports_b_out[(b_ptn.idx_s+i%ports_b_out_len_x)%ports_b_out_len]
+                    << " and " << ports_a_in[(a_ptn.idx_s+j%ports_a_in_len_x)%ports_a_in_len] << endl;
+                count++;
+            }
+        }
+    if ((a_ptn.flags & JackPortIsOutput) && (b_ptn.flags & JackPortIsInput)
+            && ports_a_out_len_x && ports_b_in_len_x)
+        for (size_t i = 0; i < lenfn(ports_a_out_len_x, ports_b_in_len_x); i++) {
+            for (size_t j = i; j < i + (mode == CONNECT_ALL ? lenfn(ports_a_in_len_x, ports_b_out_len_x) : 1); j++) {
+                fn(client, ports_a_out[(a_ptn.idx_s+i%ports_a_out_len_x)%ports_a_out_len],
+                        ports_b_in[(b_ptn.idx_s+j%ports_b_in_len_x)%ports_b_in_len]);
+                cerr << what << " " << ports_a_out[(a_ptn.idx_s+i%ports_a_out_len_x)%ports_a_out_len]
+                    << " and " << ports_b_in[(b_ptn.idx_s+j%ports_b_in_len_x)%ports_b_in_len] << endl;
+                count++;
+            }
+        }
+    jack_free(ports_a_in); jack_free(ports_b_in); jack_free(ports_a_out); jack_free(ports_b_out);
+    if (count == 0)
+        cerr << what << ": no matching ports" << endl;
+}
+void disconnect(string client_a, string client_b, string filter_a="", string filter_b="", int mode=CONNECT_MAX) {
+    dis_connect_impl(false, client_a, client_b, filter_a, filter_b, mode);
+}
+void connect(string client_a, string client_b, string filter_a="", string filter_b="", int mode=CONNECT_MAX) {
+    dis_connect_impl(true, client_a, client_b, filter_a, filter_b, mode);
+}
+
 void skip_to_now() {
     lock_guard<mutex> data_lk(data_mtx);
     ainqueue.resize(nch_in*(hop+window_size));
@@ -315,6 +423,7 @@ void init_audio() {
         cerr << "Failed to open jack client: " << status << endl;
         exit(1);
     }
+    client_name = string(jack_get_client_name(client));
     set_num_channels(2,2);
     jack_set_process_callback(client, audio_cb, nullptr);
     jack_activate(client);
@@ -332,7 +441,6 @@ void at_exit(int i) {
 
 int main(int argc, char **argv) {
     command_file = argc > 1 ? argv[1] : "cmd";
-    //TODO what if JACK assigns us a different client name than requested?
 #ifdef HACK
     client_name = string("tinyspec_") + STR(HACK);
 #else
@@ -347,7 +455,7 @@ int main(int argc, char **argv) {
     init_cling(argc, argv);
 #else
 #ifdef HACK
-#define CLIENT_NAME "tinyspec_" STR(HACK)
+#define CLIENT_NAME client_name
 #include STR(HACK)
     this_thread::sleep_until(chrono::time_point<chrono::system_clock>::max());
 #else

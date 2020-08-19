@@ -1,7 +1,6 @@
 // Simple bytebeat synth achieved by setting both frame size and hop to 1 sample.
 set_num_channels(0,1);
-system("jack_connect " CLIENT_NAME ":out0 system:playback_1");
-system("jack_connect " CLIENT_NAME ":out0 system:playback_2");
+connect(CLIENT_NAME, "system");
 
 set_process_fn([&](WaveBuf&, WaveBuf& out, int, double ts){
     double t = ts*2000;
