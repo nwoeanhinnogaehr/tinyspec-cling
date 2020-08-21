@@ -91,7 +91,7 @@ struct PVBin {
     PVBin(double amp, double freq) : amp(amp), freq(freq) { }
 };
 namespace internals {
-    extern size_t hop;
+    extern double hop;
 }
 struct PVBuf {
     PVBin *data = nullptr;

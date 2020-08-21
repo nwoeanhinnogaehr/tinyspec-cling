@@ -9,7 +9,7 @@ set_process_fn([&](WaveBuf& in, WaveBuf& out, int n, double t){
             out[i][j] = sin(double(j)/out.size*M_PI*2-M_PI/2)/2+0.5;
     int k = ((it&it/65)^it/257)%512;
     double freq = k+40;
-    int size = RATE/freq;
+    double size = RATE/freq;
     double mod = fmod(k*k,128.0)/128.0;
     next_hop_samples(mod*size+1, size+1);
     it++;

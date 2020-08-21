@@ -40,13 +40,17 @@ const char *CODE_END = ">>>";
 
 // This is in a namespace so we can cleanly access it from other compilation units with extern
 namespace internals {
-    size_t system_frame_size = 0;
-    size_t window_size;
-    size_t new_window_size(1<<12); // initial size
-    size_t hop(new_window_size/2);
+    uint64_t system_frame_size = 0;
+    uint64_t window_size;
+    uint64_t new_window_size(1<<12); // initial size
+    uint64_t hop_samples(new_window_size/2);
+    uint64_t hop_fract = 0;
+    uint64_t computed_hop = hop_samples;
+    double hop = double(hop_samples);
     deque<float> aqueue, atmp, ainqueue;
     WaveBuf audio_in, audio_out;
     uint64_t time_samples = 0;
+    uint64_t time_fract = 0;
     size_t nch_in = 0, nch_out = 0, new_nch_in = 0, new_nch_out = 0;
     mutex frame_notify_mtx, // for waking up processing thread
           exec_mtx, // guards user code exec
@@ -61,11 +65,15 @@ namespace internals {
 using namespace internals;
 
 // builtins
-void set_hop(int new_hop) {
+void set_hop(double new_hop) {
     if (new_hop <= 0) cerr << "ignoring invalid hop: " << new_hop << endl;
-    else hop = new_hop;
+    else {
+        hop = new_hop;
+        hop_samples = new_hop;
+        hop_fract = fmod(new_hop, 1.0)*double(uint64_t(-1));
+    }
 }
-void next_hop_samples(uint32_t n, uint32_t h) {
+void next_hop_samples(uint32_t n, double h) {
     new_window_size = n;
     set_hop(h);
 }
@@ -100,7 +108,7 @@ void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, L
     interp.declare("void connect(string a, string b, string filter_a=\"\", string filter_b=\"\", int mode=CONNECT_MAX);");
     interp.declare("void disconnect(string a, string b, string filter_a=\"\", string filter_b=\"\", int mode=CONNECT_MAX);");
     interp.declare("void next_hop_ratio(uint32_t n, double hop_ratio=0.25);");
-    interp.declare("void next_hop_samples(uint32_t n, uint32_t h);");
+    interp.declare("void next_hop_samples(uint32_t n, double h);");
     interp.declare("void next_hop_hz(uint32_t n, double hz);");
     interp.declare("void set_num_channels(size_t in, size_t out);");
     interp.declare("void skip_to_now();");
@@ -203,14 +211,16 @@ void generate_frames() {
                     audio_in.resize(nch_in, window_size);
                     audio_out.resize(nch_out, window_size);
                 }
-                if (ainqueue.size() < nch_in*(hop+window_size))
+                if (ainqueue.size() < nch_in*(computed_hop+window_size))
                     break;
                 if (aqueue.size() >= system_frame_size * nch_out)
                     break;
+                // advance input by hop
                 size_t sz_tmp = ainqueue.size();
-                for (size_t i = 0; i < min(nch_in*hop, sz_tmp); i++)
+                for (size_t i = 0; i < min(nch_in*computed_hop, sz_tmp); i++)
                     ainqueue.pop_front();
-                for (size_t i = 0; i < window_size; i++) {
+                // get input
+                for (uint64_t i = 0; i < window_size; i++) {
                     for (size_t c = 0; c < nch_in; c++) {
                         if (i*nch_in+c < ainqueue.size())
                             audio_in[c][i] = ainqueue[i*nch_in+c];
@@ -222,12 +232,17 @@ void generate_frames() {
                 gettimeofday(&init_time, NULL);
             if (fptr) { // call synthesis function
                 fptr(audio_in, audio_out, window_size, time_samples/(double)RATE);
-                time_samples += hop;
+                if (time_fract + hop_fract < time_fract)
+                    computed_hop = hop_samples + 1;
+                else
+                    computed_hop = hop_samples;
+                time_samples += computed_hop;
+                time_fract += hop_fract;
             }
             {
                 lock_guard<mutex> data_lk(data_mtx);
                 // output region that overlaps with previous frame(s)
-                for (size_t i = 0; i < min(hop, audio_out.size); i++) {
+                for (uint64_t i = 0; i < min(computed_hop, audio_out.size); i++) {
                     for (size_t c = 0; c < nch_out; c++) {
                         float overlap = 0;
                         if (!atmp.empty()) {
@@ -238,13 +253,13 @@ void generate_frames() {
                     }
                 }
                 // if the hop is larger than the frame size, insert silence
-                for (int i = 0; i < int(nch_out)*(int(hop)-int(audio_out.size)); i++)
+                for (int i = 0; i < int(nch_out)*(int(computed_hop)-int(audio_out.size)); i++)
                     aqueue.push_back(0);
             }
             // save region that overlaps with next frame
-            for (int i = 0; i < int(audio_out.size)-int(hop); i++) {
+            for (int i = 0; i < int(audio_out.size)-int(computed_hop); i++) {
                 for (size_t c = 0; c < nch_out; c++) {
-                    float out_val = audio_out[c][hop+i];
+                    float out_val = audio_out[c][computed_hop+i];
                     if (i*nch_out+c < atmp.size()) atmp[i*nch_out+c] += out_val;
                     else atmp.push_back(out_val);
                 }
@@ -412,7 +427,7 @@ void connect(string client_a, string client_b, string filter_a="", string filter
 
 void skip_to_now() {
     lock_guard<mutex> data_lk(data_mtx);
-    ainqueue.resize(nch_in*(hop+window_size));
+    ainqueue.resize(nch_in*(computed_hop+window_size));
     aqueue.resize(0);
 }
 

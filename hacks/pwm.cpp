@@ -9,7 +9,7 @@ set_process_fn([&](WaveBuf& in, WaveBuf& out, int n, double t){
         for (int j=0; j<out.size; j++)
             out[i][j] = 1;
     double freq = 45;
-    int size = RATE/freq;
+    double size = RATE/freq;
     double mod = sin(t)*0.5+0.5;
     next_hop_samples(mod*size+1, size+1);
 });
