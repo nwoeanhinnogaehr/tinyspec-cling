@@ -213,7 +213,7 @@ void generate_frames() {
                 }
                 if (ainqueue.size() < nch_in*(computed_hop+window_size))
                     break;
-                if (aqueue.size() >= system_frame_size * nch_out)
+                if (aqueue.size() >= max(system_frame_size, window_size) * nch_out)
                     break;
                 // advance input by hop
                 size_t sz_tmp = ainqueue.size();
@@ -264,7 +264,6 @@ void generate_frames() {
                     else atmp.push_back(out_val);
                 }
             }
-
         }
     }
 }
