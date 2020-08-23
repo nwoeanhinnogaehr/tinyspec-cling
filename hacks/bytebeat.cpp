@@ -2,7 +2,7 @@
 set_num_channels(0,1);
 connect(CLIENT_NAME, "system");
 
-set_process_fn([&](WaveBuf&, WaveBuf& out, int, double ts){
+set_process_fn([&](WaveBuf&, WaveBuf& out, double ts){
     double t = ts*2000;
     int y = t;
     int s = int(fmod(t,(1+(t/(1.0+(y&(y>>9^y>>11)))))));

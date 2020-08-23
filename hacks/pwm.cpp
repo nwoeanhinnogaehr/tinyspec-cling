@@ -4,9 +4,9 @@
 
 set_num_channels(0,1);
 connect(CLIENT_NAME, "system");
-set_process_fn([&](WaveBuf& in, WaveBuf& out, int n, double t){
-    for (int i=0; i<out.num_channels; i++)
-        for (int j=0; j<out.size; j++)
+set_process_fn([&](WaveBuf&, WaveBuf& out, double t){
+    for (size_t i=0; i<out.num_channels; i++)
+        for (size_t j=0; j<out.size; j++)
             out[i][j] = 1;
     double freq = 45;
     double size = RATE/freq;

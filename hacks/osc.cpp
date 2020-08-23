@@ -10,7 +10,7 @@
 // Then execute this and you should hear some sounds!
 // These sounds are not produced by tinyspec directly but
 // are coming from superdirt.
-set_process_fn([&](WaveBuf &in, WaveBuf &out, int n, double t){
+set_process_fn([&](WaveBuf &, WaveBuf &, double t){
     int s = t*16; // note counter
     // First two args are the OSC server address and port (UDP)
     // Third arg is the time it should be triggered at.

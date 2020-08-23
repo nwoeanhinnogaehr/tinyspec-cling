@@ -4,7 +4,7 @@
 
 set_num_channels(0, 2);
 connect(CLIENT_NAME, "system");
-set_process_fn([&](WaveBuf &in, WaveBuf &out, int n, double t) {
+set_process_fn([&](WaveBuf &, WaveBuf &out, double t) {
     static int trigger_time = -99999; //prevent trigger at t=0
     static double freq = 220;
     static int head = 0;

@@ -57,7 +57,7 @@ namespace internals {
           data_mtx; // guards aqueue, ainqueue
     condition_variable frame_notify;
     bool frame_ready = false;
-    using func_t = function<void(WaveBuf&, WaveBuf&, int, double)>;
+    using func_t = function<void(WaveBuf&, WaveBuf&, double)>;
     func_t fptr(nullptr);
     const char *command_file;
     string client_name;
@@ -113,7 +113,7 @@ void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, L
     interp.declare("void set_num_channels(size_t in, size_t out);");
     interp.declare("void skip_to_now();");
     interp.declare("void frft(FFTBuf &in, FFTBuf &out, double exponent);");
-    interp.declare("void set_process_fn(function<void(WaveBuf&, WaveBuf&, int, double)> fn);");
+    interp.declare("void set_process_fn(function<void(WaveBuf&, WaveBuf&, double)> fn);");
 
     // make a fifo called "cmd", which commands are read from
     mkfifo(command_file, 0700);
@@ -208,9 +208,9 @@ void generate_frames() {
                     window_size = new_window_size;
                     nch_in = new_nch_in;
                     nch_out = new_nch_out;
-                    audio_in.resize(nch_in, window_size);
-                    audio_out.resize(nch_out, window_size);
                 }
+                audio_in.resize(nch_in, window_size);
+                audio_out.resize(nch_out, window_size);
                 if (ainqueue.size() < nch_in*(computed_hop+window_size))
                     break;
                 if (aqueue.size() >= max(system_frame_size, window_size) * nch_out)
@@ -231,7 +231,7 @@ void generate_frames() {
             if (time_samples == 0)
                 gettimeofday(&init_time, NULL);
             if (fptr) { // call synthesis function
-                fptr(audio_in, audio_out, window_size, time_samples/(double)RATE);
+                fptr(audio_in, audio_out, time_samples/(double)RATE);
                 if (time_fract + hop_fract < time_fract)
                     computed_hop = hop_samples + 1;
                 else

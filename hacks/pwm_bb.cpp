@@ -2,10 +2,10 @@
 // Synthesizes a sine pulse wave with width and frequency varying according to a bytebeat formula.
 set_num_channels(0,1);
 connect(CLIENT_NAME, "system");
-set_process_fn([&](WaveBuf& in, WaveBuf& out, int n, double t){
+set_process_fn([&](WaveBuf&, WaveBuf& out, double){
     static int it = 1<<16;
-    for (int i=0; i<out.num_channels; i++)
-        for (int j=0; j<out.size; j++)
+    for (size_t i=0; i<out.num_channels; i++)
+        for (size_t j=0; j<out.size; j++)
             out[i][j] = sin(double(j)/out.size*M_PI*2-M_PI/2)/2+0.5;
     int k = ((it&it/65)^it/257)%512;
     double freq = k+40;

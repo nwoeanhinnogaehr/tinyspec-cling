@@ -1,7 +1,7 @@
 next_hop_ratio(1<<11, 0.5);
 set_num_channels(0, 2);
 connect(CLIENT_NAME, "system");
-set_process_fn([&](WaveBuf&, WaveBuf &out, int, double t) {
+set_process_fn([&](WaveBuf&, WaveBuf &out, double t) {
     static FFTBuf buf;
     buf.resize(out.num_channels, out.size*2);
     int n = out.size;
