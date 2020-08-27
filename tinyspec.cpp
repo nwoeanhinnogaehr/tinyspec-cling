@@ -66,7 +66,7 @@ using namespace internals;
 
 // builtins
 void set_hop(double new_hop) {
-    if (new_hop <= 0) cerr << "ignoring invalid hop: " << new_hop << endl;
+    if (new_hop < 0) cerr << "ignoring invalid hop: " << new_hop << endl;
     else {
         hop = new_hop;
         hop_samples = new_hop;
