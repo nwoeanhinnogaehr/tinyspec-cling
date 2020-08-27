@@ -88,6 +88,18 @@ void next_hop_hz(uint32_t n, double hz) {
 void set_process_fn(func_t fn) {
     fptr = fn;
 }
+double current_time_secs() {
+    return (double(time_samples) + time_fract/double(uint64_t(-1)))/RATE;
+}
+void set_time(double secs) {
+    if (secs < 0)
+        cerr << "negative time is not supported, ignoring call to set_time(" << secs << ")" << endl;
+    else {
+        base_time += current_time_secs() - secs;
+        time_samples = uint64_t(secs*RATE);
+        time_fract = fmod(secs*RATE, 1.0)*double(uint64_t(-1));
+    }
+}
 
 #ifdef USE_CLING
 void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, LLVMRESDIR, {},
@@ -114,6 +126,7 @@ void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, L
     interp.declare("void skip_to_now();");
     interp.declare("void frft(FFTBuf &in, FFTBuf &out, double exponent);");
     interp.declare("void set_process_fn(function<void(WaveBuf&, WaveBuf&, double)> fn);");
+    interp.declare("void set_time(double secs);");
 
     // make a fifo called "cmd", which commands are read from
     mkfifo(command_file, 0700);
@@ -228,10 +241,10 @@ void generate_frames() {
                     }
                 }
             }
-            if (time_samples == 0)
+            if (time_samples == 0 && time_fract == 0 && base_time == 0)
                 gettimeofday(&init_time, NULL);
             if (fptr) { // call synthesis function
-                fptr(audio_in, audio_out, time_samples/(double)RATE);
+                fptr(audio_in, audio_out, current_time_secs());
                 if (time_fract + hop_fract < time_fract)
                     computed_hop = hop_samples + 1;
                 else

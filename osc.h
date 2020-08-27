@@ -12,9 +12,10 @@ bool debug_osc = false;
 // Eventually I will write my own OSC lib to avoid this mess.
 unordered_map<string, UdpSocket> socks;
 struct timeval init_time;
+double base_time = 0;
 uint64_t to_timestamp(double t) {
-    return ((init_time.tv_sec + 2208988800u + uint64_t(t)) << 32)
-        + 4294.967296*(init_time.tv_usec + fmod(t, 1.0)*1000000);
+    return ((init_time.tv_sec + 2208988800u + uint64_t(t + base_time)) << 32)
+        + 4294.967296*(init_time.tv_usec + fmod(t + base_time, 1.0)*1000000);
 }
 void _osc_send(const string &address, int port, double t, Message *msg) {
     auto res = socks.emplace(address+":"+to_string(port), UdpSocket());
