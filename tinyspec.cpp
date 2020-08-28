@@ -207,14 +207,25 @@ void frft(FFTBuf &in, FFTBuf &out, double exponent) {
 }
 
 void generate_frames() {
+    struct timespec yield_time;
+    clock_gettime(CLOCK_MONOTONIC, &yield_time);
     while (true) {
         { // wait until there's more to do
             unique_lock<mutex> lk(frame_notify_mtx);
             frame_notify.wait(lk, []{ return frame_ready; });
             frame_ready = false;
         }
-        lock_guard<mutex> exec_lk(exec_mtx);
         while (true) {
+            struct timespec current_time;
+            clock_gettime(CLOCK_MONOTONIC, &current_time);
+            if (current_time.tv_sec > yield_time.tv_sec ||
+                    (current_time.tv_sec >= yield_time.tv_sec && current_time.tv_nsec >= yield_time.tv_nsec)) {
+                usleep(0);
+                yield_time.tv_nsec = current_time.tv_nsec + 100000000;
+                yield_time.tv_sec = current_time.tv_sec + (yield_time.tv_nsec > 999999999);
+                yield_time.tv_nsec %= 1000000000;
+            }
+            lock_guard<mutex> exec_lk(exec_mtx);
             {
                 lock_guard<mutex> data_lk(data_mtx);
                 if (new_nch_in != nch_in || new_nch_out != nch_out || new_window_size != window_size) {
@@ -302,6 +313,7 @@ int audio_cb(jack_nframes_t len, void *) {
         frame_ready = true;
     }
     frame_notify.notify_one();
+    size_t underrun = 0;
     for (size_t i = 0; i < len; i++)
         for (size_t c = 0; c < out_ports.size(); c++) {
             if (!aqueue.empty()) {
@@ -309,8 +321,14 @@ int audio_cb(jack_nframes_t len, void *) {
                 aqueue.pop_front();
             } else {
                 out_bufs[c][i] = 0;
+                underrun++;
             }
         }
+    static bool warmed_up = false;
+    if (underrun && warmed_up)
+        cerr << "WARNING: audio output buffer underrun (" << underrun << " samples)" << endl;
+    else if (!underrun)
+        warmed_up = true;
     return 0;
 }
 
