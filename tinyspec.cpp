@@ -17,6 +17,7 @@
 #include<jack/jack.h>
 #ifdef USE_CLING
 #include"cling/Interpreter/Interpreter.h"
+#include"cling/Interpreter/InterpreterCallbacks.h"
 #include"cling/Utils/Casting.h"
 #endif
 #include"osc.h"
@@ -102,9 +103,16 @@ void set_time(double secs) {
 }
 
 #ifdef USE_CLING
+struct Callbacks : public cling::InterpreterCallbacks {
+    Callbacks(cling::Interpreter *interp) : cling::InterpreterCallbacks(interp) { }
+    void *EnteringUserCode() { exec_mtx.lock(); return nullptr; }
+    void ReturnedFromUserCode(void *) { exec_mtx.unlock(); }
+};
 void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, LLVMRESDIR, {},
             true); // disable runtime for simplicity
+    interp.setCallbacks(make_unique<Callbacks>(&interp));
     interp.setDefaultOptLevel(2);
+    interp.allowRedefinition();
     interp.process( // preamble
             "#define RATE " STR(RATE) "\n"
             "#define CONNECT_MIN 0\n"
@@ -151,9 +159,7 @@ void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, L
             string preview = to_exec.substr(0, preview_len);
             cerr << "execute: " << preview << "..." << endl;
 
-            exec_mtx.lock();
             interp.process(to_exec);
-            exec_mtx.unlock();
 
             // move to next block
             begin = code.find(CODE_BEGIN);
