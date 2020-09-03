@@ -35,7 +35,7 @@ set_process_fn([&](WaveBuf &, WaveBuf &out, double t) {
             }
         }
         frft(f,f,-1);
-        buf.fill_from(f);
+        buf.fill_from<cplx>(f, [](cplx x){return x.real();});
     }
     head++;
     next_hop_samples(1,1);

@@ -1,130 +1,18 @@
-#include <fftw3.h>
-#include <functional>
-#include <cassert>
-typedef std::complex<double> cplx;
-
-struct FFTBuf;
-struct PVBuf;
-
-void frft(FFTBuf &in, FFTBuf &out, double exponent);
-
-template <typename T>
-struct Buf {
-    T *data = nullptr;
-    size_t size = 0;
-    size_t num_channels = 0;
-    Buf() {}
-    Buf(size_t num_channels, size_t size) { resize(num_channels, size); }
-    ~Buf() { if (data) free(data); }
-    void resize(size_t num_channels, size_t size) {
-        if (this->size*this->num_channels != size*num_channels) {
-            this->size = size;
-            this->num_channels = num_channels;
-            if (data) free(data);
-            data = (T*) malloc(sizeof(T)*num_channels*size);
-            zero();
-        }
-    }
-    void fill_from(Buf<T> &other) {
-        resize(other.num_channels, other.size);
-        std::copy(other.data, other.data+num_channels*size, data);
-    }
-    void fill_from(FFTBuf &other, std::function<T(cplx)> mix=[](cplx x){ return x.real(); });
-    void zero() {
-        for (size_t i = 0; i < size*num_channels; i++)
-            data[i] = 0;
-    }
-    T* operator[](int index) { return data + index*size; }
-};
-using WaveBuf = Buf<double>;
-
-struct FFTBuf {
-    cplx *data = nullptr;
-    size_t size = 0;
-    size_t num_channels = 0;
-    FFTBuf() {}
-    FFTBuf(size_t num_channels, size_t size) { resize(num_channels, size); }
-    ~FFTBuf() { if (data) fftw_free(data); }
-    void resize(size_t num_channels, size_t size) {
-        if (this->size*this->num_channels != size*num_channels) {
-            this->size = size;
-            this->num_channels = num_channels;
-            if (data) fftw_free(data);
-            data = (cplx*) fftw_malloc(sizeof(cplx)*num_channels*size);
-            for (size_t i = 0; i < size*num_channels; i++)
-                data[i] = 0;
-        }
-    }
-    void fill_from(WaveBuf &other) {
-        resize(other.num_channels, other.size);
-        for (size_t i = 0; i < num_channels; i++)
-            for (size_t j = 0; j < size; j++)
-                data[i*size + j] = other[i][j];
-    }
-    void fill_from(FFTBuf &other) {
-        resize(other.num_channels, other.size);
-        std::copy(other.data, other.data+num_channels*size, data);
-    }
-    void zero() {
-        for (size_t i = 0; i < size*num_channels; i++)
-            data[i] = 0;
-    }
-    cplx* operator[](int index) { return data + index*size; }
-};
-
-void window_hann(WaveBuf &data) {
-    for (size_t i = 0; i < data.size; i++) {
-        double w = 0.5*(1-cos(2*M_PI*i/data.size)); // Hann
-        for (size_t j = 0; j < data.num_channels; j++)
-            data[j][i] *= w;
-    }
-}
-void window_sqrt_hann(WaveBuf &data) {
-    for (size_t i = 0; i < data.size; i++) {
-        double w = sqrt(0.5*(1-cos(2*M_PI*i/data.size))); // Hann
-        for (size_t j = 0; j < data.num_channels; j++)
-            data[j][i] *= w;
-    }
-}
-
 //PV = Phase Vocoder
 struct PVBin {
     double amp, freq;
+    PVBin() : amp(0), freq(0) { }
     PVBin(double amp, double freq) : amp(amp), freq(freq) { }
 };
+using PVBuf = Buf<PVBin>;
+
 namespace internals {
     extern double hop;
 }
-struct PVBuf {
-    PVBin *data = nullptr;
-    size_t size = 0;
-    size_t num_channels = 0;
-    PVBuf() { }
-    PVBuf(size_t num_channels, size_t size) { resize(num_channels, size); }
-    ~PVBuf() { if (data) free(data); }
-    void resize(size_t num_channels, size_t size) {
-        if (this->size*this->num_channels != size*num_channels) {
-            this->size = size;
-            this->num_channels = num_channels;
-            if (data) free(data);
-            data = (PVBin*) malloc(sizeof(PVBin)*num_channels*size);
-            zero();
-        }
-    }
-    void zero() {
-        for (size_t i = 0; i < size*num_channels; i++)
-            data[i] = PVBin(0,0);
-    }
-    void fill_from(PVBuf &other) {
-        resize(other.num_channels, other.size);
-        std::copy(other.data, other.data+num_channels*size, data);
-    }
-    PVBin* operator[](int index) { return data + index*size; }
-};
 struct PhaseVocoder {
     PVBuf data;
-    WaveBuf last_phase;
-    WaveBuf phase_sum;
+    Buf<double> last_phase;
+    Buf<double> phase_sum;
     size_t size = 0;
     size_t num_channels = 0;
     FFTBuf fft;
@@ -173,7 +61,7 @@ struct PhaseVocoder {
         other.resize(num_channels, size);
         synthesize(fft);
         frft(fft, fft, -1);
-        other.fill_from(fft);
+        other.fill_from<cplx>(fft, [](cplx x){return x.real();});
         window_sqrt_hann(other);
     }
     void analyze(FFTBuf &other) {
@@ -241,12 +129,3 @@ struct PhaseVocoder {
     }
     PVBin* operator[](int index) { return data[index]; }
 };
-
-template<typename T>
-void Buf<T>::fill_from(FFTBuf &other, std::function<T(cplx)> mix) {
-    resize(other.num_channels, other.size);
-    for (size_t i = 0; i < num_channels; i++)
-        for (size_t j = 0; j < size; j++)
-            data[i*size + j] = mix(other[i][j]);
-}
-

@@ -39,12 +39,6 @@ void _osc_push(Message *m, float v) { m->pushFloat(v); }
 void _osc_push(Message *m, double v) { m->pushDouble(v); }
 void _osc_push(Message *m, const string &v) { m->pushStr(v); }
 
-struct RecvMsg {
-    void *ar;
-    Message *msg;
-    RecvMsg(void *ar, Message *msg) : ar(ar), msg(msg) { }
-    ~RecvMsg();
-};
 RecvMsg::~RecvMsg() {
     delete (Message::ArgReader*) ar;
     delete msg;

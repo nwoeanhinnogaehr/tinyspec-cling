@@ -6,6 +6,7 @@ namespace oscpkt {
 struct RecvMsg {
     void *ar;
     oscpkt::Message *msg;
+    RecvMsg(void *ar, oscpkt::Message *msg) : ar(ar), msg(msg) { }
     ~RecvMsg();
 };
 #endif

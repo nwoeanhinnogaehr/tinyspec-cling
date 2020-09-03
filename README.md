@@ -1,3 +1,5 @@
+NOTE: readme is currently out of date while refactoring is in progress
+
 A tiny C++ live-coded overlap-add (re)synthesizer for Linux.
 Things that you can do easily with tinyspec include:
 

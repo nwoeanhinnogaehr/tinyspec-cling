@@ -17,7 +17,7 @@ set_process_fn([&](WaveBuf& in, WaveBuf& out, double t){
         }
     }
     frft(fft, fft, -1.0); // Perform in-place inverse FFT
-    out.fill_from(fft); // Copy real part to output
+    out.fill_from<cplx>(fft, [](cplx x){return x.real();}); // Copy real part to output
     window_hann(out); // Apply Hann window
     next_hop_ratio(4096); // Set FFT size for the next frame
 });

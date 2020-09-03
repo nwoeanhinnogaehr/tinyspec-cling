@@ -1,0 +1,5 @@
+#include "osc.hpp"
+#include "control.hpp"
+#include "windowfn.hpp"
+#include "fft.hpp"
+#include "connect.hpp"
