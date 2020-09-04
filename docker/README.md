@@ -11,16 +11,17 @@ Currently this is untested on mac and windows though. Please let me know if it w
 
 Install docker and JACK on your local machine, and start both the JACK server and the docker daemon.
 
-From the tinyspec-cling repo root, do
+From the hacks directory, do
 ```
-$ docker/run.sh
+$ ../docker/run.sh
 ```
+The script needs to be run from the hacks directory in order to correctly find your hacks.
 This will open a tmux session with vim on the top and tinyspec on the bottom.
 You can execute a block of code from the editor by pressing F1.
 
 You can optionally pass a filename and input/output port counts like so
 ```
-$ docker/run.sh hacks/FILENAME.cpp NUM_INPUT_PORTS NUM_OUTPUT_PORTS
+$ ../docker/run.sh hacks/FILENAME.cpp NUM_INPUT_PORTS NUM_OUTPUT_PORTS
 ```
 ## Details
 

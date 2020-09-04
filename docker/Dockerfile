@@ -1,4 +1,4 @@
-FROM ubuntu:18.04
+FROM ubuntu:20.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y git clang libc6-dev binutils jackd2 libjack-jackd2-dev libfftw3-dev libzip-dev vim tmux curl netcat && \
