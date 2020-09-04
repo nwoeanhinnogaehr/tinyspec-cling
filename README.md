@@ -1,6 +1,5 @@
-NOTE: readme is currently out of date while refactoring is in progress
-
-A tiny C++ live-coded overlap-add (re)synthesizer for Linux.
+# tinyspec-cling
+A tiny C++ live-coded overlap-add (re)synthesizer for Linux, which uses cling to add REPL-like functionality for C++ code.
 Things that you can do easily with tinyspec include:
 
  - create novel audio effects using FFT, phase vocoders and more, and control them with OSC
@@ -11,7 +10,7 @@ Things that you can do easily with tinyspec include:
  - use these synthesizers and effects with DAWs, other synthesizers, etc using JACK
  - do all of this in a live performance (with some caveats)
 
-**What is an overlap-add (re)synthesizer?**
+### What is an overlap-add (re)synthesizer?
 You define a function which is called periodically to process a *frame* of audio.
 The rate at which the function is called, as well as the length of a frame can be dynamically adjusted.
 If multiple frames overlap in time, some of the input that they receive will be the same, and their outputs will be mixed.
@@ -22,150 +21,110 @@ Or, you could set the frame size to 1024 and the hop size to 256 (ratio 1/4) for
 It's even possible to dynamically adjust the frame size and the hop according to some function. The amount of latency is automatically
 adjusted by inserting silence to the input as needed.
 
-Visually, in the following diagram the hop is 3 and the frame size starts at 7 but increments by 1 each frame.
+Visually, in the following diagram the hop is 3 and the frame size is 7.
 The audio output from the frames which overlap vertically will be added together before sending it out via JACK.
 ```
-  Time-------->
-F |-----|
-r    |------|
-a       |-------|
-m          |--------|
-e             |---------|
-s                |----------|
-|                   |-----------|
-|                      |------------|
-V                         ...
+Time    ---------------------->
+Frame 1 ~~~~~~~
+Frame 2    ~~~~~~~
+Frame 3       ~~~~~~~
+Frame 4          ~~~~~~~
+Frame 5             ~~~~~~~
+Frame 6                ~~~~~~~
+...
 ```
-You probably wouldn't want to literally do this, because the frames would quickly grow to an unwieldy length
-and the output would likely clip from having too many frames overlap at once. So, you do have to be a bit careful
-about what you're doing. Also, be aware that things like division by zero and null pointer dereferences will crash your program.
-Hence why you should be particularly vigilant if you decide live code this in a performance.
 
+### Relation to tinyspec 
 This is a fork of [tinyspec](https://github.com/nwoeanhinnogaehr/tinyspec), which was an experiment in trying to make the smallest useful FFT synthesizer.
-This version adds live-coding support via [cling](https://root.cern.ch/cling), among many other handy features.
-Cling is quite large and only officially supports Ubuntu (but probably works elsewhere),
-so if you don't want to use it, you can still use this
-to compile your code into a standalone executable, without live-coding support.
+This version adds live-coding support via [cling](https://root.cern.ch/cling), among many other handy features, and at this point it
+barely resembles the original tinyspec project.
+Cling is quite large and only officially supports a few distros (but probably works elsewhere),
+so if you don't want to use it, you can still use this repo
+to compile your hacks into a standalone executable, without live-coding support.
 
-## Install
+## Setup (easy)
+The easiest way to get tinyspec up and running is by using Docker.
+
+## Setup (advanced)
+More adventurous users can install tinyspec-cling natively for improved latency and flexibility.
+
+## Prereqs
 Download an appropriate cling package from https://root.cern.ch/download/cling/
 and extract it to a directory called `cling_bin`.
-(If you're using Arch, the Ubuntu 18 package gives some warnings but basically seems to work.)
-This step is not necessary if you only want to use standalone mode (see below).
+This official download page is occasionally inaccessible, so I also mirror a few builds on Google Drive [here](https://drive.google.com/drive/u/0/folders/1rrKMifdHjtKAVMU_HgxeNZyY4uBvwpvp).
+(If you're using Arch, the Ubuntu 20.04 package gives some warnings but basically seems to work.)
+This step is not necessary if you don't want to use the live-coding support.
 
-[JACK Audio Connection Kit](http://www.jackaudio.org/) is used for audio output, and [FFTW3](http://www.fftw.org/) is required for synthesis.
+You will also need 
+[JACK Audio Connection Kit](http://www.jackaudio.org/) for audio output, and [FFTW3](http://www.fftw.org/) for synthesis.
 
-## Standalone mode
-The easiest way to get started is using standalone mode. For example, try
+On ubuntu you can install prereqs with
 ```
-$ ./standalone hacks/readme.cpp
+# apt-get install git clang libc6-dev binutils jackd2 libjack-jackd2-dev libfftw3-dev libzip-dev
 ```
-Then in a separate terminal, connect the program to your speakers by running
+JACK requires some configuration to get running, which can be quite significant depending on your setup.
+There are many tutorials online to help you get it set up.
+
+## Running without live-coding support
+This is the easiest way to get started and doesn't require a functioning cling installation.
 ```
-$ jack_connect tinyspec_cmd:out0 system:playback_1
-$ jack_connect tinyspec_cmd:out1 system:playback_2
+$ ./compile --no-cling hacks/readme.cpp
 ```
-See `hacks/connect.cpp` for examples of how you can make your program automatically connect inputs/outputs.
-You can also do this through a JACK GUI such as [Catia](https://kx.studio/Applications:Catia).
+This compiles and runs an executable called `hacks/.readme.cpp.out`.
+The `hacks` directory contains more examples you can try.
 
 ## Live-coding mode
 Running the application in live coding mode starts a server which listens for code written to a named pipe.
 You can start as many servers as you want and route their inputs/outputs using
-JACK. To do this, you can use a JACK GUI such as [Catia](https://kx.studio/Applications:Catia).
-Alternatively see `hacks/connect.cpp` for examples of how you can make your program automatically connect inputs/outputs.
+JACK. To do this, see `hacks/connect.cpp` for examples of how you can make your program automatically connect inputs/outputs.
+Alternatively you can use a JACK GUI such as [Catia](https://kx.studio/Applications:Catia).
 
-Compile tinyspec by running `./compile`.
+First, compile tinyspec by running `./compile`.
 
-To run the server do:
+Now, to run the server do:
 ```
-$ ./tinyspec /tmp/ts-example
+$ ./tinyspec /tmp/ts-cmd
 ```
-Where `/tmp/ts-example` is the pipe to create for executing code from.
+Here `/tmp/ts-cmd` is the pipe to create for executing code from.
 If you run multiple instances they must have unique pipe files.
 If all goes well you should see
 ```
 Playing...
 ```
-There may be some warnings from cling afterwards, which may or may not be safe to ignore! (cling is very buggy)
-You won't hear anything yet for two reasons: the application is not
-connected to your speakers (do this through JACK) and we haven't sent it any code yet.
+There may be some warnings from cling, which may or may not be safe to ignore.
+If you think a cling warning is causing problems for you, please open an issue here.
+You won't hear anything yet because we haven't sent the server any code to execute.
 
-### Editor setup
-The `send` program can be invoked on the command line to execute code on the server.
+### Executing code
+Currently the below is a bit clunky/user unfriendly. A fancy new WebUI is coming soon!
+
+The `tools/send` program can be invoked on the command line to execute code on the server.
 It takes the path to the server's command pipe as an argument.
 
 For example try
 ```
-$ ./send /tmp/ts-example
+$ ./send /tmp/ts-cmd
 cout << "Hello World!" << endl;
 ^D
 ```
 
-It's probably easy to set up your editor to invoke `send` with the current selection or block.
+It should be easy to set up your editor to invoke `send` with the current selection or block.
 For example, the following vim commands map F2 to execute the current paragraph of code.
 ```
-:map <F2> mcVip::w<Home>silent <End> !./send /tmp/ts-example<CR>`c
-:imap <F2> <Esc>mcVip::w<Home>silent <End> !./send /tmp/ts-example<CR>`ca
+:map <F2> mcVip::w<Home>silent <End> !tools/send /tmp/ts-cmd<CR>`c
+:imap <F2> <Esc>mcVip::w<Home>silent <End> !tools/send /tmp/ts-cmd<CR>`ca
 ```
-Check out `doc/vscode.txt` for a basic method of using tinyspec with vscode.
+Check out `docs/vscode.txt` for a basic method of using tinyspec with vscode.
 
 If you configure another editor, please contribute it here so other users can benefit!
 
-### Usage
+### API
 
-For example, try executing the following code. You can also find this file as hacks/readme.cpp
+Currently this project is lacking API documentation, but it has a number of examples
+in the `hacks` directory which you can study. API docs coming soon!
 
-```C++
-// Called periodically to fill up a new buffer.
-// in and out are audio sample buffers
-// n is the number of samples in the frame
-// t is the time in seconds since the beginning of playback.
-set_process_fn([&](WaveBuf& in, WaveBuf& out, int n, double t){
-    FFTBuf fft;
-    fft.resize(out.num_channels, n);
-    // Loop over frequency bins. Starting at 1 skips the DC offset.
-    for (int c = 0; c < 2; c++) {
-        for (int i = 1; i < n; i++) {
-            cplx x = sin(i*pow(1.0/(i+1), 1.0+sin(t*i*M_PI/8+c)*0.5))*25 // Some random formula
-                /pow(i,0.9); // Scale magnitude to prevent loud high frequency noises.
-            fft[c][i] = x; // Fill output buffer
-        }
-    }
-    frft(fft, fft, -1.0); // Perform in-place inverse FFT
-    out.fill_from(fft); // Copy real part to output
-    window_hann(out); // Apply Hann window
-    next_hop_ratio(4096); // Set FFT size for the next frame
-});
-```
+## Project structure
 
-Here, `cplx` is just an alias for `std::complex<double>`.
+`rtinc` stores header files accessible by user code.
+`rtlib` stores the respective implementations. Both directories contain a `root.hpp` file which is included by default.
 
-See `synth.h` for info about working with buffers and the built-in audio processing library.
-
-Note the call to `next_hop_ratio` at the end---this is one of 3 built in functions that can be used to
-manipulate the parameters of the FFT synthesizer.
-
-`void next_hop_ratio(uint32_t n, double hop_ratio=0.25)`:
-Set the FFT size for the next frame to `n` and advance the output by `n*hop_ratio` samples.
-
-`void next_hop_samples(uint32_t n, uint32_t hop)`:
-Set the FFT size for the next frame to `n` and advance the output by `hop` samples.
-
-`void next_hop_hz(uint32_t n, double hz)`:
-Set the FFT size for the next frame to `n` and advance the output such that the rate of
-frame generation is `hz` Hz. That is, advance by `RATE/hz` samples.
-
-You can also call `void set_num_channels(size_t in, size_t out);`
-to set the number of input and output channels to use.
-
-Finally, if you notice a lot of latency, you can force
-the synthesizer to discard buffered data and skip to the present moment
-by calling `void skip_to_now();`
-
-See the hacks directory for some other examples.
-Even more examples---which require adaptation for this fork---are available as part of [tinyspec](https://github.com/nwoeanhinnogaehr/tinyspec).
-
-## OSC support
-
-There is currently experimental support for sending/receiving Open Sound Control messages.
-See `hacks/osc.cpp` and `hacks/tidal.cpp` for details.

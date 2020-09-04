@@ -1,0 +1,12 @@
+Download a package from https://root.cern.ch/download/cling/ and extract it here.
+
+Your directory structure should look like:
+tinyspec-cling/
+    cling_bin/
+        bin/
+        include/
+        lib/
+        libexec/
+        share/
+    ...
+

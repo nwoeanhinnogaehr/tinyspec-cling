@@ -2,3 +2,4 @@ tinyspec
 send
 cling_bin
 .*.out
+cling_*.tar.bz2
