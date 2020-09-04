@@ -20,8 +20,8 @@
 #include"cling/Interpreter/InterpreterCallbacks.h"
 #include"cling/Utils/Casting.h"
 #endif
-#include "rtinc/rt.hpp"
-#include "rtlib/rt.hpp"
+#include "rtinc/root.hpp"
+#include "rtlib/root.hpp"
 using namespace std;
 
 #define STR_(x) #x
@@ -72,7 +72,7 @@ void init_cling(int argc, char **argv) { cling::Interpreter interp(argc, argv, L
     interp.setCallbacks(make_unique<Callbacks>(&interp));
     interp.setDefaultOptLevel(2);
     interp.allowRedefinition();
-    interp.process("#include \"rtinc/rt.hpp\"\n");
+    interp.process("#include \"rtinc/root.hpp\"\n");
 
     // make a fifo called "cmd", which commands are read from
     mkfifo(command_file.c_str(), 0700);
