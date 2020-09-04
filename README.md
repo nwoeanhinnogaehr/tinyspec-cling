@@ -44,7 +44,7 @@ so if you don't want to use it, you can still use this repo
 to compile your hacks into a standalone executable, without live-coding support.
 
 ## Setup (easy)
-The easiest way to get tinyspec up and running is by using Docker.
+The easiest way to get tinyspec up and running is by using Docker. See [the docker directory](docker/) for details.
 
 ## Setup (advanced)
 More adventurous users can install tinyspec-cling natively for improved latency and flexibility.
