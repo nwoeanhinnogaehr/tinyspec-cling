@@ -9,9 +9,9 @@ Currently this is untested on mac and windows though. Please let me know if it w
 
 ## Usage
 
-Install docker and JACK on your local machine, and start both the JACK server and the docker daemon.
+Install [Docker](https://www.docker.com) and [JACK](http://jackaudio.org) on your local machine, and start both the JACK server and the docker daemon.
 
-From the hacks directory, do
+Next, clone this repo. Then, from the hacks directory, do
 ```
 $ ../docker/run.sh
 ```
@@ -19,7 +19,7 @@ The script needs to be run from the hacks directory in order to correctly find y
 This will open a tmux session with vim on the top and tinyspec on the bottom.
 You can execute a block of code from the editor by pressing F1.
 
-You can optionally pass a filename and input/output port counts like so
+You can optionally pass a filename to load and input/output port counts like so
 ```
 $ ../docker/run.sh hacks/FILENAME.cpp NUM_INPUT_PORTS NUM_OUTPUT_PORTS
 ```
@@ -32,4 +32,5 @@ be persisted!
 The way that sound gets from your container out to your system is via the JACK `net` bridge.
 The entire container will show up as a single JACK client on your host system.
 
-Be aware that latency and reliability may be very bad.
+Be aware that latency and reliability may be very bad. If this is a problem for you
+consider installing tinyspec-cling natively as detailed in the top level readme.
