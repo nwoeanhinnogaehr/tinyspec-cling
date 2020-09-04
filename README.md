@@ -12,7 +12,8 @@ Things that you can do easily with tinyspec include:
 
 ### What is an overlap-add (re)synthesizer?
 You define a function which is called periodically to process a *frame* of audio.
-The rate at which the function is called, as well as the length of a frame can be dynamically adjusted.
+The rate at which the function is called, the number of input/output channels,
+as well as the length of a frame can be dynamically adjusted.
 If multiple frames overlap in time, some of the input that they receive will be the same, and their outputs will be mixed.
 
 For example, you could set the frame size to 1 and the hop size to 1 if you want to process a single sample at a time.
