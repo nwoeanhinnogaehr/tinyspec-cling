@@ -180,9 +180,15 @@ void generate_frames() {
                         aqueue.push_back(overlap + audio_out[c][i]);
                     }
                 }
-                // if the hop is larger than the frame size, insert silence
-                for (int i = 0; i < int(nch_out)*(int(computed_hop)-int(audio_out.size)); i++)
-                    aqueue.push_back(0);
+                // if the hop is larger than the frame size
+                for (int i = 0; i < int(nch_out)*(int(computed_hop)-int(audio_out.size)); i++) {
+                    if (!atmp.empty()) {
+                        aqueue.push_back(atmp.front()); // output overlap if any
+                        atmp.pop_front();
+                    } else {
+                        aqueue.push_back(0); // otherwise output silence
+                    }
+                }
             }
             // save region that overlaps with next frame
             for (int i = 0; i < int(audio_out.size)-int(computed_hop); i++) {
