@@ -2,12 +2,11 @@
 
 namespace internals {
     extern jack_client_t *client;
+    extern string client_name;
 }
-
-#define CONNECT_MIN 0
-#define CONNECT_MAX 1
-#define CONNECT_ALL 2
-
+string client_name() {
+    return internals::client_name;
+}
 struct PortPattern {
     string regex;
     size_t idx_s, idx_t;
@@ -50,7 +49,7 @@ PortPattern parse_port_pattern(string filter) {
     return p;
 }
 
-void dis_connect_impl(bool con, string client_a, string client_b, string filter_a, string filter_b, int mode) {
+void dis_connect_impl(bool con, string client_a, string client_b, string filter_a, string filter_b, ConnectMode mode) {
     const char* what = con ? "connect" : "disconnect";
     auto fn = con ? jack_connect : jack_disconnect;
     PortPattern a_ptn = parse_port_pattern(filter_a);
@@ -71,12 +70,12 @@ void dis_connect_impl(bool con, string client_a, string client_b, string filter_
     size_t ports_b_in_len_x = min(ports_b_in_len, b_ptn.idx_t-b_ptn.idx_s);
     size_t ports_b_out_len = 0; for (int i = 0; ports_b_out && ports_b_out[i]; i++) ports_b_out_len++;
     size_t ports_b_out_len_x = min(ports_b_out_len, b_ptn.idx_t-b_ptn.idx_s);
-    auto lenfn = [=](size_t a, size_t b) { return mode ? max(a, b) : min(a, b); };
+    auto lenfn = [=](size_t a, size_t b) { return mode != ConnectMode::Min ? max(a, b) : min(a, b); };
     int count = 0;
     if ((a_ptn.flags & JackPortIsInput) && (b_ptn.flags & JackPortIsOutput)
             && ports_b_out_len_x && ports_a_in_len_x)
         for (size_t i = 0; i < lenfn(ports_a_in_len_x, ports_b_out_len_x); i++) {
-            for (size_t j = i; j < i + (mode == CONNECT_ALL ? lenfn(ports_a_in_len_x, ports_b_out_len_x) : 1); j++) {
+            for (size_t j = i; j < i + (mode == ConnectMode::All ? lenfn(ports_a_in_len_x, ports_b_out_len_x) : 1); j++) {
                 fn(internals::client, ports_b_out[(b_ptn.idx_s+i%ports_b_out_len_x)%ports_b_out_len],
                         ports_a_in[(a_ptn.idx_s+j%ports_a_in_len_x)%ports_a_in_len]);
                 cerr << what << " " << ports_b_out[(b_ptn.idx_s+i%ports_b_out_len_x)%ports_b_out_len]
@@ -87,7 +86,7 @@ void dis_connect_impl(bool con, string client_a, string client_b, string filter_
     if ((a_ptn.flags & JackPortIsOutput) && (b_ptn.flags & JackPortIsInput)
             && ports_a_out_len_x && ports_b_in_len_x)
         for (size_t i = 0; i < lenfn(ports_a_out_len_x, ports_b_in_len_x); i++) {
-            for (size_t j = i; j < i + (mode == CONNECT_ALL ? lenfn(ports_a_in_len_x, ports_b_out_len_x) : 1); j++) {
+            for (size_t j = i; j < i + (mode == ConnectMode::All ? lenfn(ports_a_in_len_x, ports_b_out_len_x) : 1); j++) {
                 fn(internals::client, ports_a_out[(a_ptn.idx_s+i%ports_a_out_len_x)%ports_a_out_len],
                         ports_b_in[(b_ptn.idx_s+j%ports_b_in_len_x)%ports_b_in_len]);
                 cerr << what << " " << ports_a_out[(a_ptn.idx_s+i%ports_a_out_len_x)%ports_a_out_len]
@@ -99,9 +98,9 @@ void dis_connect_impl(bool con, string client_a, string client_b, string filter_
     if (count == 0)
         cerr << what << ": no matching ports" << endl;
 }
-void disconnect(string client_a, string client_b, string filter_a, string filter_b, int mode) {
+void disconnect(string client_a, string client_b, string filter_a, string filter_b, ConnectMode mode) {
     dis_connect_impl(false, client_a, client_b, filter_a, filter_b, mode);
 }
-void connect(string client_a, string client_b, string filter_a, string filter_b, int mode) {
+void connect(string client_a, string client_b, string filter_a, string filter_b, ConnectMode mode) {
     dis_connect_impl(true, client_a, client_b, filter_a, filter_b, mode);
 }

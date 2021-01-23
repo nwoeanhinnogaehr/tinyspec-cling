@@ -1,14 +1,7 @@
 #include <iostream>
 #include <vector>
+#include <string>
 using namespace std;
-
-namespace internals {
-    extern string client_name;
-    extern double rate;
-}
-
-#define RATE internals::rate
-#define CLIENT_NAME internals::client_name
 
 #include "buffer.hpp"
 #include "control.hpp"
@@ -16,4 +9,5 @@ namespace internals {
 #include "osc.hpp"
 #include "fft.hpp"
 #include "windowfn.hpp"
-#include "pv.hpp"
+//#include "pv.hpp"
+#include "event.hpp"
