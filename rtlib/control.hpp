@@ -1,5 +1,3 @@
-double current_time_secs();
-using func_t = function<void(WaveBuf&, WaveBuf&)>;
 namespace internals {
     extern uint64_t max_backbuffer_size;
     extern uint64_t latency;
@@ -88,7 +86,13 @@ void set_max_backbuffer_size(size_t n) {
 size_t max_backbuffer_size() {
     return internals::max_backbuffer_size;
 }
-void set_latency(size_t n) {
+void set_latency(uint64_t n) {
+    if (n == 0 || n % internals::block_size != 0) {
+        n += internals::block_size - n % internals::block_size;
+        cerr << "rounded up latency to " << n <<
+            " so that it is a multiple of the JACK buffer size ("
+            << internals::block_size << ")" << endl;
+    }
     lock_guard<mutex> data_lk(internals::data_mtx);
     for (size_t i = internals::latency; i < n; i++)
         for (size_t c = 0; c < internals::nch_out; c++) {
@@ -99,6 +103,6 @@ void set_latency(size_t n) {
             internals::aoutqueue.pop_front();
     internals::latency = n;
 }
-size_t latency() {
+uint64_t latency() {
     return internals::latency;
 }

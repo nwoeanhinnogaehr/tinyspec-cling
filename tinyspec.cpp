@@ -33,13 +33,19 @@ const char *LLVMRESDIR = "cling_bin"; // path to cling resource directory
 const char *CODE_BEGIN = "<<<";
 const char *CODE_END = ">>>";
 
+const uint64_t INITIAL_LATENCY = 1<<13;
+const uint64_t INITIAL_MAX_BACKBUFFER_SIZE = 1<<25; // about 6 minutes / 32 MB
+const uint64_t INITIAL_NCH_IN = 2;
+const uint64_t INITIAL_NCH_OUT = 2;
+
 // This is in a namespace so we can cleanly access it from other compilation units with extern
 namespace internals {
-    uint64_t block_size = 0;
-    uint64_t max_backbuffer_size = 1<<25; // about 6 minutes / 32 MB
+    uint64_t block_size = INITIAL_LATENCY;
+    uint64_t max_backbuffer_size = INITIAL_MAX_BACKBUFFER_SIZE;
     double time_now = 0;
     uint64_t block_time = 0;
     uint64_t latency = 0;
+    uint64_t underrun = 0;
     size_t nch_in = 0, nch_out = 0;
     double rate = 44100; // reset by jack
     deque<float> aoutqueue, ainqueue, backbuffer;
@@ -82,6 +88,8 @@ void init_cling(int argc, char **argv) {
     interp.getRuntimeOptions().AllowRedefinition = 1;
     interp.AddIncludePath("rtinc");
     interp.process("#include \"rtinc/root.hpp\"\n");
+
+    cout << "Initialized cling" << endl;
 
     // make a fifo which commands are read from
     mkfifo(command_file.c_str(), 0700);
@@ -171,9 +179,15 @@ void generate_frames() {
 
             // process all events starting in this block
             while (true) {
-                auto lower = evq.lower_bound(block_time);
+                auto lower = evq.begin();
                 if (lower == evq.end())
                     break;
+                if (lower->first < block_time) {
+                    evq.erase(lower);
+                    cerr << "Discarded an event that was scheduled for the past" << endl;
+                    // TODO give the name and time of the event
+                    continue;
+                }
                 if (lower->first >= block_time + block_size)
                     break; // no more events start in this block
                 Evref ref = lower->second;
@@ -231,6 +245,12 @@ void generate_frames() {
                 lock_guard<mutex> data_lk(data_mtx);
                 for (size_t i = 0; i < block_size*nch_out; i++)
                     aoutqueue.push_back(buffer[i]);
+
+                // if we are running behind, just discard some samples to catch up.
+                while (aoutqueue.size() && underrun) {
+                    aoutqueue.pop_front();
+                    underrun--;
+                }
             }
 
             // advance time
@@ -258,7 +278,6 @@ int audio_cb(jack_nframes_t len, void *) {
         frame_ready = true;
     }
     frame_notify.notify_one();
-    size_t underrun = 0;
     for (size_t i = 0; i < len; i++)
         for (size_t c = 0; c < out_ports.size(); c++) {
             if (!aoutqueue.empty()) {
@@ -269,11 +288,10 @@ int audio_cb(jack_nframes_t len, void *) {
                 underrun++;
             }
         }
-    static bool warmed_up = true; //TODO
-    if (underrun && warmed_up)
-        cerr << "WARNING: audio output buffer underrun (" << underrun << " samples)" << endl;
-    else if (!underrun)
-        warmed_up = true;
+    if (underrun) {
+        cerr << "WARNING: audio output buffer underrun (" << underrun/nch_out << " samples behind)" << endl;
+        cerr << "         try increasing the latency by calling set_latency(uint64_t); current latency: " << internals::latency << " samples." << endl;
+    }
     return 0;
 }
 int sample_rate_changed(jack_nframes_t sr, void*) {
@@ -290,12 +308,12 @@ void init_audio() {
         exit(1);
     }
     internals::client_name = string(jack_get_client_name(client));
-    set_num_channels(2,2);
-    set_latency(8192);
+    set_num_channels(INITIAL_NCH_IN, INITIAL_NCH_OUT);
+    set_latency(INITIAL_LATENCY);
     jack_set_process_callback(client, audio_cb, nullptr);
     jack_set_sample_rate_callback(client, sample_rate_changed, nullptr);
     jack_activate(client);
-    cout << "Playing..." << endl;
+    cout << "Initialized JACK" << endl;
 }
 
 sighandler_t prev_handlers[32];

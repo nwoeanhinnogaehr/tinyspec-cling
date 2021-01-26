@@ -7,5 +7,5 @@ WaveBuf get_input_back(double t, size_t n);
 WaveBuf get_input_at(double t, size_t n);
 void set_max_backbuffer_size(size_t n);
 size_t max_backbuffer_size();
-void set_latency(size_t n);
-size_t latency();
+void set_latency(uint64_t n);
+uint64_t latency();
