@@ -79,7 +79,7 @@ void init_cling(int argc, char **argv) {
             true); // disable runtime for simplicity
     interp.setCallbacks(make_unique<Callbacks>(&interp));
     interp.setDefaultOptLevel(2);
-    interp.allowRedefinition();
+    interp.getRuntimeOptions().AllowRedefinition = 1;
     interp.AddIncludePath("rtinc");
     interp.process("#include \"rtinc/root.hpp\"\n");
 
