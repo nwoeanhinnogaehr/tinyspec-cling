@@ -3,107 +3,140 @@
 #include <queue>
 #include <optional>
 
-struct Event {
-    // NOTE: the start_time of an event should NEVER be updated without also updating evq
-    double start_time = 0;
+struct Time {
+    uint64_t integral;
+    uint64_t fractional;
+    Time(double samp) : integral(uint64_t(samp)), fractional(fmod(samp, 1.0)*uint64_t(-1)) {}
+    double samples() { return integral + fractional/double(uint64_t(-1)); }
+    double secs() { return samples()/sample_rate(); }
+    friend bool operator<(const Time &l, const Time &r) {
+        return l.integral == r.integral ?
+            l.fractional < r.fractional :
+            l.integral < r.integral;
+    }
+};
+
+using EventTypeId = uint64_t;
+struct EventType {
+    string name;
+    EventTypeId id;
     function<WaveBuf()> gen_fn;
     function<void()> exec_fn;
+};
+using EventId = uint64_t;
+struct Event {
+    EventTypeId type_id = -1;
+    EventId id = -1;
+    Time start_time = 0;
     friend bool operator<(const Event &l, const Event &r) {
         return l.start_time < r.start_time;
     }
 };
-using Evref = uint64_t;
 namespace internals {
-    extern Evref next_evref;
-    extern unordered_map<Evref, Event> evtab;
-    extern unordered_map<string, Evref> nametab;
-
-    // map from start_time to event
-    // invariant: each Evref should only appear at most once
-    extern multimap<double, Evref> evq; 
+    extern EventTypeId next_type_id;
+    extern EventId next_event_id;
+    extern unordered_map<EventTypeId, EventType> type_map;
+    extern unordered_map<string, EventTypeId> name_map;
+    extern unordered_map<EventId, Event> event_map;
+    extern optional<EventTypeId> current_event_type;
+    extern optional<EventId> current_event;
+    extern multimap<Time, EventId> event_queue; // map from start_time to event
 
     extern double rate;
-    extern optional<Evref> current_event;
 }
 
-Evref new_evref() { return internals::next_evref++; }
+EventTypeId new_event_type_id() { return internals::next_type_id++; }
+EventTypeId new_event_id() { return internals::next_event_id++; }
 
 long double operator ""_hz(long double hz) { return internals::rate/hz; }
 long double operator ""_sec(long double sec) { return internals::rate*sec; }
+long double operator ""_ms(long double ms) { return internals::rate/1000*ms; }
 unsigned long long operator ""_hz(unsigned long long hz) { return internals::rate/hz; }
 unsigned long long operator ""_sec(unsigned long long sec) { return internals::rate*sec; }
+unsigned long long operator ""_ms(unsigned long long ms) { return internals::rate/1000*ms; }
 
-function<void(Event& ev)> At(double n) { return [=](Event& ev) { ev.start_time = n; }; }
-function<void(Event& ev)> In(double n) { return [=](Event& ev) { ev.start_time = n + now(); }; }
-function<void(Event& ev)> GenFn(function<WaveBuf()> fn) { return [=](Event& ev) { ev.gen_fn = fn; ev.exec_fn = {}; }; }
-function<void(Event& ev)> Fn(function<void()> fn) { return [=](Event& ev) { ev.exec_fn = fn; ev.gen_fn = {}; }; }
+function<void(EventType& ty, Event& ev)> At(double n) { return [=](EventType& ty, Event& ev) {
+    ev.start_time = n;
+    ev.type_id = ty.id;
+    ev.id = new_event_id();
+}; }
+function<void(EventType& ty, Event& ev)> In(double n) { return [=](EventType& ty, Event& ev) {
+    ev.start_time = n + now();
+    ev.type_id = ty.id;
+    ev.id = new_event_id();
+}; }
+function<void(EventType& ty, Event& ev)> GenFn(function<WaveBuf()> fn) { return [=](EventType& ty, Event& ev) {
+    ty.gen_fn = fn;
+    ty.exec_fn = {};
+}; }
+function<void(EventType& ty, Event& ev)> Fn(function<void()> fn) { return [=](EventType& ty, Event& ev) {
+    ty.exec_fn = fn;
+    ty.gen_fn = {};
+}; }
 
-void apply_params(Event &) {}
+void apply_params(EventType& ty, Event &) {}
 template <typename T1, typename...T>
-void apply_params(Event &ev, T1 p1, T... p) {
-    p1(ev);
-    apply_params(ev, p...);
+void apply_params(EventType& ty, Event &ev, T1 p1, T... p) {
+    p1(ty, ev);
+    apply_params(ty, ev, p...);
 }
 
 template <typename...T>
-Evref event(Evref ref, T... params) {
+void event(EventTypeId type_id, T... params) {
     using namespace internals;
-    Event &ev = evtab[ref];
+    EventType &ty = type_map[type_id];
+    ty.id = type_id;
+    Event ev;
 
-    // erase any old versions of this from the queue
-    auto range = evq.equal_range(ev.start_time);
-    for (auto i = range.first; i != range.second; ++i)
-        if ((*i).second == ref) {
-            evq.erase(i);
-            break;
-        }
+    apply_params(ty, ev, params...);
 
-    apply_params(ev, params...);
-
-    if (ev.start_time < now()) {
-        cerr << "event scheduled for the past, discarding..." << endl;
-        return -1;
+    if (ev.id != uint64_t(-1)) { // if a start time was specified, schedule it
+        event_map[ev.id] = ev;
+        event_queue.emplace(ev.start_time, ev.id);
     }
-
-    evq.emplace(ev.start_time, ref);
-    return ref;
 }
 
 template <typename...T>
-Evref next_event(T... params) {
-    return event(internals::current_event.value(), params...);
+void this_event(T... params) {
+    event(internals::current_event_type.value(), params...);
 }
 
 template <typename...T>
-Evref event(string name, T... params) {
-    auto it = internals::nametab.find(name);
-    Evref ref;
-    if (it == internals::nametab.end()) {
-        ref = new_evref();
-        internals::nametab[name] = ref;
+void event(string name, T... params) {
+    auto it = internals::name_map.find(name);
+    EventTypeId type_id;
+    if (it == internals::name_map.end()) {
+        type_id = new_event_type_id();
+        internals::name_map[name] = type_id;
     } else
-        ref = (*it).second;
-    return event(ref, params...);
+        type_id = (*it).second;
+    event(type_id, params...);
 }
 
-void cancel(Evref ref) {
+void cancel(EventTypeId type_id) {
     using namespace internals;
-    Event &ev = evtab[ref];
-    auto range = evq.equal_range(ev.start_time);
-    for (auto i = range.first; i != range.second; ++i)
-        if ((*i).second == ref) {
-            evq.erase(i);
-            break;
-        }
+    for (auto it = event_queue.begin(); it != event_queue.end();) {
+        Event& ev = event_map[(*it).second];
+        if (ev.type_id == type_id) {
+            event_map.erase((*it).second);
+            it = event_queue.erase(it);
+        } else ++it;
+    }
 }
 void cancel(string name) {
-    auto it = internals::nametab.find(name);
-    if (it != internals::nametab.end()) {
+    auto it = internals::name_map.find(name);
+    if (it != internals::name_map.end()) {
         cancel((*it).second);
     }
 }
 
 void cancel_all() {
-    internals::evq.clear();
-    //TODO: might also consider clearing the tables?
+    internals::event_queue.clear();
+    internals::event_map.clear();
+}
+
+template <typename...T>
+void def_event(string name, T... params) {
+    cancel(name);
+    event(name, params...);
 }

@@ -59,18 +59,20 @@ namespace internals {
     jack_client_t *client;
     vector<jack_port_t *> in_ports;
     vector<jack_port_t *> out_ports;
-    using Evref = uint64_t;
-    Evref next_evref = 0;
-    unordered_map<Evref, Event> evtab;
-    unordered_map<string, Evref> nametab;
-    multimap<double, Evref> evq;
-    optional<Evref> current_event = -1;
+    EventTypeId next_type_id;
+    EventId next_event_id;
+    unordered_map<EventTypeId, EventType> type_map;
+    unordered_map<string, EventTypeId> name_map;
+    unordered_map<EventId, Event> event_map;
+    optional<EventTypeId> current_event_type;
+    optional<EventId> current_event;
+    multimap<Time, EventId> event_queue; // map from start_time to event
     struct OutFrame {
-        Evref ev;
-        double start_time;
+        EventId ev;
+        Time start_time;
         WaveBuf buf;
     };
-    multimap<double, OutFrame> out_frames;
+    multimap<Time, OutFrame> out_frames;
 }
 
 #ifdef USE_CLING
@@ -179,30 +181,34 @@ void generate_frames() {
 
             // process all events starting in this block
             while (true) {
-                auto lower = evq.begin();
-                if (lower == evq.end())
+                auto lower = event_queue.begin();
+                if (lower == event_queue.end())
                     break;
                 if (lower->first < block_time) {
-                    evq.erase(lower);
+                    event_queue.erase(lower);
                     cerr << "Discarded an event that was scheduled for the past" << endl;
                     // TODO give the name and time of the event
                     continue;
                 }
-                if (lower->first >= block_time + block_size)
+                if (lower->first.integral >= block_time + block_size)
                     break; // no more events start in this block
-                Evref ref = lower->second;
-                evq.erase(lower);
-                Event *ev = &evtab[ref];
+                EventId id = lower->second;
+                event_queue.erase(lower);
+                Event *ev = &event_map[id];
+                EventType *ty = &type_map[ev->type_id];
 
                 // execute!
-                internals::time_now = ev->start_time;
-                current_event = ref;
-                if (ev->gen_fn)
-                    out_frames.emplace(internals::time_now,
-                                       OutFrame{ref, internals::time_now, (ev->gen_fn)()});
-                else if (ev->exec_fn)
-                    (ev->exec_fn)();
+                internals::time_now = ev->start_time.samples();
+                current_event_type = ev->type_id;
+                current_event = id;
+                if (ty->gen_fn)
+                    out_frames.emplace(ev->start_time,
+                                       OutFrame{id, ev->start_time, (ty->gen_fn)()});
+                else if (ty->exec_fn)
+                    (ty->exec_fn)();
+                current_event_type = {};
                 current_event = {};
+                event_map.erase(id);
             }
 
             // TODO add support for custom mixers
@@ -211,7 +217,7 @@ void generate_frames() {
 
             //fill buffer from events
             for (auto it = out_frames.begin(); it != out_frames.end();) {
-                double start_time = it->first;
+                Time start_time = it->first;
                 OutFrame &frame = it->second;
 
                 if (frame.buf.num_channels != nch_out) {
@@ -220,21 +226,21 @@ void generate_frames() {
                     continue;
                 }
 
-                if (start_time+frame.buf.size < block_time) {
+                if (start_time.integral+frame.buf.size < block_time) {
                     // already ended
                     it = out_frames.erase(it);
                     continue;
                 } else ++it;
 
                 // not started yet
-                if (start_time >= block_time+block_size)
+                if (start_time.integral >= block_time+block_size)
                     break;
 
                 // mix
-                int64_t interval_start = max(int64_t(block_time), int64_t(start_time));
-                int64_t interval_end = min(int64_t(block_time+block_size), int64_t(start_time+frame.buf.size));
+                int64_t interval_start = max(int64_t(block_time), int64_t(start_time.integral));
+                int64_t interval_end = min(int64_t(block_time+block_size), int64_t(start_time.integral+frame.buf.size));
                 int64_t block_start = interval_start - block_time;
-                int64_t frame_start = interval_start - start_time;
+                int64_t frame_start = interval_start - start_time.integral;
                 for (int64_t i = 0; i < interval_end - interval_start; i++)
                     for (size_t c = 0; c < nch_out; c++)
                         buffer[(i+block_start)*nch_out + c] += frame.buf[c][i+frame_start];
