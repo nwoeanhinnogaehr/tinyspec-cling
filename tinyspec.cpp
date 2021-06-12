@@ -42,7 +42,7 @@ const uint64_t INITIAL_NCH_OUT = 2;
 namespace internals {
     uint64_t block_size = INITIAL_LATENCY;
     uint64_t max_backbuffer_size = INITIAL_MAX_BACKBUFFER_SIZE;
-    double time_now = 0;
+    Time time_now = 0;
     uint64_t block_time = 0;
     uint64_t latency = 0;
     uint64_t underrun = 0;

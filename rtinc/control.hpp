@@ -1,7 +1,6 @@
 void set_num_channels(size_t in, size_t out);
 double now_secs();
 double now();
-void set_now(double t);
 double sample_rate();
 WaveBuf get_input_back(double t, size_t n);
 WaveBuf get_input_at(double t, size_t n);

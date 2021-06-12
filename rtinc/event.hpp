@@ -7,23 +7,38 @@ struct Time {
     uint64_t integral;
     uint64_t fractional;
     Time(double samp) : integral(uint64_t(samp)), fractional(fmod(samp, 1.0)*uint64_t(-1)) {}
+    Time(uint64_t i, uint64_t f) : integral(i), fractional(f) {}
     double samples() { return integral + fractional/double(uint64_t(-1)); }
     double secs() { return samples()/sample_rate(); }
+    Time operator+(const Time other) const {
+        uint64_t res_unused;
+        return Time(
+            integral + other.integral + __builtin_add_overflow(fractional, other.fractional, &res_unused),
+            fractional + other.fractional
+        );
+    }
     friend bool operator<(const Time &l, const Time &r) {
         return l.integral == r.integral ?
             l.fractional < r.fractional :
             l.integral < r.integral;
     }
+    template<typename T>
+    static Time hz(T hz);
+    template<typename T>
+    static Time sec(T sec);
+    template<typename T>
+    static Time ms(T ms);
 };
 
+
 using EventTypeId = uint64_t;
+using EventId = uint64_t;
 struct EventType {
     string name;
     EventTypeId id;
     function<WaveBuf()> gen_fn;
     function<void()> exec_fn;
 };
-using EventId = uint64_t;
 struct Event {
     EventTypeId type_id = -1;
     EventId id = -1;
@@ -43,66 +58,72 @@ namespace internals {
     extern multimap<Time, EventId> event_queue; // map from start_time to event
 
     extern double rate;
+    extern Time time_now;
 }
+Time operator ""_hz(long double hz) { return internals::rate/hz; }
+Time operator ""_sec(long double sec) { return internals::rate*sec; }
+Time operator ""_ms(long double ms) { return internals::rate/1000*ms; }
+Time operator ""_hz(unsigned long long hz) { return internals::rate/hz; }
+Time operator ""_sec(unsigned long long sec) { return internals::rate*sec; }
+Time operator ""_ms(unsigned long long ms) { return internals::rate/1000*ms; }
+
+template<typename T>
+Time Time::hz(T hz) { return internals::rate/hz; }
+template<typename T>
+Time Time::sec(T sec) { return internals::rate*sec; }
+template<typename T>
+Time Time::ms(T ms) { return internals::rate/1000*ms; }
 
 EventTypeId new_event_type_id() { return internals::next_type_id++; }
 EventTypeId new_event_id() { return internals::next_event_id++; }
-
-long double operator ""_hz(long double hz) { return internals::rate/hz; }
-long double operator ""_sec(long double sec) { return internals::rate*sec; }
-long double operator ""_ms(long double ms) { return internals::rate/1000*ms; }
-unsigned long long operator ""_hz(unsigned long long hz) { return internals::rate/hz; }
-unsigned long long operator ""_sec(unsigned long long sec) { return internals::rate*sec; }
-unsigned long long operator ""_ms(unsigned long long ms) { return internals::rate/1000*ms; }
-
-function<void(EventType& ty, Event& ev)> At(double n) { return [=](EventType& ty, Event& ev) {
-    ev.start_time = n;
-    ev.type_id = ty.id;
-    ev.id = new_event_id();
-}; }
-function<void(EventType& ty, Event& ev)> In(double n) { return [=](EventType& ty, Event& ev) {
-    ev.start_time = n + now();
-    ev.type_id = ty.id;
-    ev.id = new_event_id();
-}; }
-function<void(EventType& ty, Event& ev)> GenFn(function<WaveBuf()> fn) { return [=](EventType& ty, Event& ev) {
-    ty.gen_fn = fn;
-    ty.exec_fn = {};
-}; }
-function<void(EventType& ty, Event& ev)> Fn(function<void()> fn) { return [=](EventType& ty, Event& ev) {
-    ty.exec_fn = fn;
-    ty.gen_fn = {};
-}; }
-
-void apply_params(EventType& ty, Event &) {}
-template <typename T1, typename...T>
-void apply_params(EventType& ty, Event &ev, T1 p1, T... p) {
-    p1(ty, ev);
-    apply_params(ty, ev, p...);
-}
-
-template <typename...T>
-void event(EventTypeId type_id, T... params) {
-    using namespace internals;
-    EventType &ty = type_map[type_id];
-    ty.id = type_id;
-    Event ev;
-
-    apply_params(ty, ev, params...);
-
-    if (ev.id != uint64_t(-1)) { // if a start time was specified, schedule it
-        event_map[ev.id] = ev;
-        event_queue.emplace(ev.start_time, ev.id);
+struct EventTypeRef {
+    uint64_t id;
+    EventTypeRef run(function<void()> f) {
+        EventType &ty = internals::type_map[id];
+        ty.id = id;
+        ty.exec_fn = f;
+        return *this;
     }
-}
+    EventTypeRef snd(function<WaveBuf()> f) {
+        EventType &ty = internals::type_map[id];
+        ty.id = id;
+        ty.gen_fn = f;
+        return *this;
+    }
+    EventTypeRef in(Time t) {
+        return this->at(t + internals::time_now);
+    }
+    EventTypeRef at(Time t) {
+        EventType &ty = internals::type_map[id];
+        ty.id = id;
+        Event ev;
+        ev.start_time = t;
+        ev.type_id = id;
+        ev.id = new_event_id();
+        internals::event_map[ev.id] = ev;
+        internals::event_queue.emplace(ev.start_time, ev.id);
+        return *this;
+    }
+    EventTypeRef cancel() {
+        using namespace internals;
+        for (auto it = event_queue.begin(); it != event_queue.end();) {
+            Event& ev = event_map[(*it).second];
+            if (ev.type_id == id) {
+                event_map.erase((*it).second);
+                it = event_queue.erase(it);
+            } else ++it;
+        }
+        return *this;
+    }
+};
 
-template <typename...T>
-void this_event(T... params) {
-    event(internals::current_event_type.value(), params...);
+EventTypeRef self() {
+    return EventTypeRef {*internals::current_event_type};
 }
-
-template <typename...T>
-void event(string name, T... params) {
+EventTypeRef fn(EventTypeId type) {
+    return EventTypeRef { type };
+}
+EventTypeRef fn(string name) {
     auto it = internals::name_map.find(name);
     EventTypeId type_id;
     if (it == internals::name_map.end()) {
@@ -110,33 +131,19 @@ void event(string name, T... params) {
         internals::name_map[name] = type_id;
     } else
         type_id = (*it).second;
-    event(type_id, params...);
+    return fn(type_id);
 }
-
-void cancel(EventTypeId type_id) {
-    using namespace internals;
-    for (auto it = event_queue.begin(); it != event_queue.end();) {
-        Event& ev = event_map[(*it).second];
-        if (ev.type_id == type_id) {
-            event_map.erase((*it).second);
-            it = event_queue.erase(it);
-        } else ++it;
-    }
+EventTypeRef def_fn(string name) {
+    EventTypeRef ev = fn(name);
+    ev.cancel();
+    return ev;
 }
-void cancel(string name) {
-    auto it = internals::name_map.find(name);
-    if (it != internals::name_map.end()) {
-        cancel((*it).second);
-    }
+EventTypeRef def_fn(EventTypeId type) {
+    EventTypeRef ev = fn(type);
+    ev.cancel();
+    return ev;
 }
-
 void cancel_all() {
     internals::event_queue.clear();
     internals::event_map.clear();
-}
-
-template <typename...T>
-void def_event(string name, T... params) {
-    cancel(name);
-    event(name, params...);
 }

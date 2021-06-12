@@ -3,7 +3,7 @@ namespace internals {
     extern uint64_t latency;
     extern uint64_t block_time, block_size;
     extern deque<float> aoutqueue, ainqueue, backbuffer;
-    extern double time_now;
+    extern Time time_now;
     extern size_t nch_in, nch_out;
     extern mutex data_mtx;
     extern double rate;
@@ -46,24 +46,10 @@ void set_num_channels(size_t in, size_t out) {
     internals::nch_out = out;
 }
 double now_secs() {
-    return now()/internals::rate;
+    return internals::time_now.secs();
 }
 double now() {
-    return internals::time_now;
-}
-void set_time_secs(double secs) {
-    /*if (secs < 0)
-        cerr << "negative time is not supported, ignoring call to set_time_secs(" << secs << ")" << endl;
-    else {
-        base_time += time_secs() - secs;
-        internals::time_samples = uint64_t(secs*internals::rate);
-        internals::time_fract = fmod(secs*internals::rate, 1.0)*double(uint64_t(-1));
-    }*/
-    assert(0); // TODO
-}
-void set_now(double samples) {
-    //set_time_secs(samples/internals::rate);
-    assert(0); // TODO
+    return internals::time_now.samples();
 }
 WaveBuf get_input_back(double t, size_t n) {
     return get_input_at(now()-t-n, n);
