@@ -33,16 +33,12 @@ struct Time {
 
 using EventTypeId = uint64_t;
 using EventId = uint64_t;
-struct EventType {
-    string name;
-    EventTypeId id;
-    function<WaveBuf()> gen_fn;
-    function<void()> exec_fn;
-};
 struct Event {
     EventTypeId type_id = -1;
     EventId id = -1;
     Time start_time = 0;
+    function<WaveBuf()> run_fn;
+    function<WaveBuf()> snd_fn;
     friend bool operator<(const Event &l, const Event &r) {
         return l.start_time < r.start_time;
     }
@@ -50,8 +46,6 @@ struct Event {
 namespace internals {
     extern EventTypeId next_type_id;
     extern EventId next_event_id;
-    extern unordered_map<EventTypeId, EventType> type_map;
-    extern unordered_map<string, EventTypeId> name_map;
     extern unordered_map<EventId, Event> event_map;
     extern optional<EventTypeId> current_event_type;
     extern optional<EventId> current_event;
@@ -76,73 +70,74 @@ Time Time::ms(T ms) { return internals::rate/1000*ms; }
 
 EventTypeId new_event_type_id() { return internals::next_type_id++; }
 EventTypeId new_event_id() { return internals::next_event_id++; }
-struct EventTypeRef {
-    uint64_t id;
-    EventTypeRef run(function<void()> f) {
-        EventType &ty = internals::type_map[id];
-        ty.id = id;
-        ty.exec_fn = f;
-        return *this;
-    }
-    EventTypeRef snd(function<WaveBuf()> f) {
-        EventType &ty = internals::type_map[id];
-        ty.id = id;
-        ty.gen_fn = f;
-        return *this;
-    }
-    EventTypeRef in(Time t) {
-        return this->at(t + internals::time_now);
-    }
-    EventTypeRef at(Time t) {
-        EventType &ty = internals::type_map[id];
-        ty.id = id;
-        Event ev;
-        ev.start_time = t;
-        ev.type_id = id;
-        ev.id = new_event_id();
-        internals::event_map[ev.id] = ev;
-        internals::event_queue.emplace(ev.start_time, ev.id);
-        return *this;
-    }
-    EventTypeRef cancel() {
+template <typename ...T>
+struct Def;
+template <typename ...T>
+struct EventRef {
+    EventId evt_id;
+    Def<T...> &def;
+
+    Def<T...>& cancel() {
         using namespace internals;
         for (auto it = event_queue.begin(); it != event_queue.end();) {
             Event& ev = event_map[(*it).second];
-            if (ev.type_id == id) {
+            if (ev.id == evt_id) {
+                event_map.erase((*it).second);
+                break;
+            } else ++it;
+        }
+        return def;
+    }
+    Def<T...>& snd_fn(function<WaveBuf(T...)> f) { return def.snd_fn(f); }
+    Def<T...>& run_fn(function<void(T...)> f) { return def.run_fn(f); }
+    EventRef in(Time t, T... args) { return def.in(t, args...); }
+    EventRef at(Time t, T... args) { return def.at(t, args...); }
+};
+template<typename ...T>
+struct Def {
+    EventTypeId ty_id;
+    function<WaveBuf(T...)> _snd_fn;
+    function<WaveBuf(T...)> _run_fn;
+
+    Def() : ty_id(new_event_type_id()) { }
+
+    Def& snd_fn(function<WaveBuf(T...)> f) {
+        _snd_fn = f;
+        return *this;
+    }
+    Def& run_fn(function<WaveBuf(T...)> f) {
+        _run_fn = f;
+        return *this;
+    }
+    Def& cancel() {
+        using namespace internals;
+        for (auto it = event_queue.begin(); it != event_queue.end();) {
+            Event& ev = event_map[(*it).second];
+            if (ev.type_id == ty_id) {
                 event_map.erase((*it).second);
                 it = event_queue.erase(it);
             } else ++it;
         }
         return *this;
     }
-};
 
-EventTypeRef self() {
-    return EventTypeRef {*internals::current_event_type};
-}
-EventTypeRef fn(EventTypeId type) {
-    return EventTypeRef { type };
-}
-EventTypeRef fn(string name) {
-    auto it = internals::name_map.find(name);
-    EventTypeId type_id;
-    if (it == internals::name_map.end()) {
-        type_id = new_event_type_id();
-        internals::name_map[name] = type_id;
-    } else
-        type_id = (*it).second;
-    return fn(type_id);
-}
-EventTypeRef def_fn(string name) {
-    EventTypeRef ev = fn(name);
-    ev.cancel();
-    return ev;
-}
-EventTypeRef def_fn(EventTypeId type) {
-    EventTypeRef ev = fn(type);
-    ev.cancel();
-    return ev;
-}
+    EventRef<T...> in(Time t, T... args) {
+        return at(t + internals::time_now, args...);
+    }
+    EventRef<T...> at(Time t, T... args) {
+        Event ev;
+        ev.start_time = t;
+        ev.type_id = ty_id;
+        ev.id = new_event_id();
+        if (_run_fn)
+            ev.run_fn = bind(_run_fn, args...);
+        if (_snd_fn)
+            ev.snd_fn = bind(_snd_fn, args...);
+        internals::event_map[ev.id] = ev;
+        internals::event_queue.emplace(ev.start_time, ev.id);
+        return EventRef<T...>{ev.id, *this};
+    }
+};
 void cancel_all() {
     internals::event_queue.clear();
     internals::event_map.clear();

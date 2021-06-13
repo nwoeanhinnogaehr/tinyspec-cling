@@ -61,8 +61,6 @@ namespace internals {
     vector<jack_port_t *> out_ports;
     EventTypeId next_type_id;
     EventId next_event_id;
-    unordered_map<EventTypeId, EventType> type_map;
-    unordered_map<string, EventTypeId> name_map;
     unordered_map<EventId, Event> event_map;
     optional<EventTypeId> current_event_type;
     optional<EventId> current_event;
@@ -175,7 +173,7 @@ void generate_frames() {
             while (backbuffer.size() > nch_in*internals::max_backbuffer_size)
                 backbuffer.pop_front();
 
-            // TODO 
+            // TODO
             //if (internals::time_now == 0 && base_time == 0)
                 //gettimeofday(&init_time, NULL); // TODO use clock_gettime
 
@@ -195,17 +193,16 @@ void generate_frames() {
                 EventId id = lower->second;
                 event_queue.erase(lower);
                 Event *ev = &event_map[id];
-                EventType *ty = &type_map[ev->type_id];
 
                 // execute!
                 internals::time_now = ev->start_time.samples();
                 current_event_type = ev->type_id;
                 current_event = id;
-                if (ty->gen_fn)
+                if (ev->run_fn)
+                    (ev->run_fn)();
+                if (ev->snd_fn)
                     out_frames.emplace(ev->start_time,
-                                       OutFrame{id, ev->start_time, (ty->gen_fn)()});
-                else if (ty->exec_fn)
-                    (ty->exec_fn)();
+                                       OutFrame{id, ev->start_time, (ev->snd_fn)()});
                 current_event_type = {};
                 current_event = {};
                 event_map.erase(id);
