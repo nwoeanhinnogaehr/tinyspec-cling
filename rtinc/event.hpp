@@ -37,7 +37,7 @@ struct Event {
     EventTypeId type_id = -1;
     EventId id = -1;
     Time start_time = 0;
-    function<WaveBuf()> run_fn;
+    function<void()> run_fn;
     function<WaveBuf()> snd_fn;
     friend bool operator<(const Event &l, const Event &r) {
         return l.start_time < r.start_time;
@@ -97,7 +97,7 @@ template<typename ...T>
 struct Def {
     EventTypeId ty_id;
     function<WaveBuf(T...)> _snd_fn;
-    function<WaveBuf(T...)> _run_fn;
+    function<void(T...)> _run_fn;
 
     Def() : ty_id(new_event_type_id()) { }
 
@@ -105,7 +105,7 @@ struct Def {
         _snd_fn = f;
         return *this;
     }
-    Def& run_fn(function<WaveBuf(T...)> f) {
+    Def& run_fn(function<void(T...)> f) {
         _run_fn = f;
         return *this;
     }
