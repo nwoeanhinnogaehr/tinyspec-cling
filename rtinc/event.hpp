@@ -1,7 +1,6 @@
 #include <unordered_map>
 #include <map>
 #include <queue>
-#include <optional>
 
 struct Time {
     uint64_t integral;
@@ -47,8 +46,6 @@ namespace internals {
     extern EventTypeId next_type_id;
     extern EventId next_event_id;
     extern unordered_map<EventId, Event> event_map;
-    extern optional<EventTypeId> current_event_type;
-    extern optional<EventId> current_event;
     extern multimap<Time, EventId> event_queue; // map from start_time to event
 
     extern double rate;

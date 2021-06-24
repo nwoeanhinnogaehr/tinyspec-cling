@@ -62,8 +62,6 @@ namespace internals {
     EventTypeId next_type_id;
     EventId next_event_id;
     unordered_map<EventId, Event> event_map;
-    optional<EventTypeId> current_event_type;
-    optional<EventId> current_event;
     multimap<Time, EventId> event_queue; // map from start_time to event
     struct OutFrame {
         EventId ev;
@@ -196,15 +194,11 @@ void generate_frames() {
 
                 // execute!
                 internals::time_now = ev->start_time.samples();
-                current_event_type = ev->type_id;
-                current_event = id;
                 if (ev->run_fn)
                     (ev->run_fn)();
                 if (ev->snd_fn)
                     out_frames.emplace(ev->start_time,
                                        OutFrame{id, ev->start_time, (ev->snd_fn)()});
-                current_event_type = {};
-                current_event = {};
                 event_map.erase(id);
             }
 

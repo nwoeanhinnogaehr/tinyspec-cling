@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <algorithm>
 using namespace std;
 
 #define DISABLE_PTRCHECK __attribute__((annotate("__cling__ptrcheck(off)")))
