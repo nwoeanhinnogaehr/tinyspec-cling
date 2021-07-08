@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-CXX_FLAGS="-std=c++14 -O3"
+CXX_FLAGS="-std=c++17 -O3"
 if [ -n "$USE_LIBCPP" ]; then 
     CXX_FLAGS+=" -stdlib=libc++"
 fi
@@ -17,31 +17,15 @@ else
     set -x
     $CXX $CXX_FLAGS tools/send.cpp -o tools/send
     $CXX $CXX_FLAGS -DUSE_CLING -DOSCPKT_OSTREAM_OUTPUT -fno-rtti -Wall -Wextra \
-        -Wno-bitwise-op-parentheses -Wno-unused-parameter tinyspec.cpp -o tinyspec \
+        tinyspec.cpp -o tinyspec \
         -ljack -lfftw3 -lm -Icling_bin/include -Lcling_bin/lib -lclingInterpreter \
         -lclingUtils -lclangFrontend -lclangSerialization -lclangParse -lclangSema \
         -lclangEdit -lclangLex -lclangDriver -lclangCodeGen -lclangBasic  -lclangAST \
         -lLLVMLTO -lLLVMPasses -lLLVMObjCARCOpts -lLLVMSymbolize -lLLVMDebugInfoPDB \
         -lLLVMDebugInfoDWARF -lLLVMMIRParser -lLLVMCoverage -lLLVMTableGen -lLLVMDlltoolDriver \
         -lLLVMOrcJIT -lLLVMXCoreDisassembler -lLLVMXCoreCodeGen -lLLVMXCoreDesc -lLLVMXCoreInfo \
-        -lLLVMXCoreAsmPrinter -lLLVMSystemZDisassembler -lLLVMSystemZCodeGen \
-        -lLLVMSystemZAsmParser -lLLVMSystemZDesc -lLLVMSystemZInfo -lLLVMSystemZAsmPrinter \
-        -lLLVMSparcDisassembler -lLLVMSparcCodeGen -lLLVMSparcAsmParser -lLLVMSparcDesc \
-        -lLLVMSparcInfo -lLLVMSparcAsmPrinter -lLLVMPowerPCDisassembler -lLLVMPowerPCCodeGen \
-        -lLLVMPowerPCAsmParser -lLLVMPowerPCDesc -lLLVMPowerPCInfo -lLLVMPowerPCAsmPrinter \
         -lLLVMNVPTXCodeGen -lLLVMNVPTXDesc -lLLVMNVPTXInfo -lLLVMNVPTXAsmPrinter \
-        -lLLVMMSP430CodeGen -lLLVMMSP430Desc -lLLVMMSP430Info -lLLVMMSP430AsmPrinter \
-        -lLLVMMipsDisassembler -lLLVMMipsCodeGen -lLLVMMipsAsmParser -lLLVMMipsDesc \
-        -lLLVMMipsInfo -lLLVMMipsAsmPrinter -lLLVMLanaiDisassembler -lLLVMLanaiCodeGen \
-        -lLLVMLanaiAsmParser -lLLVMLanaiDesc -lLLVMLanaiAsmPrinter -lLLVMLanaiInfo \
-        -lLLVMHexagonDisassembler -lLLVMHexagonCodeGen -lLLVMHexagonAsmParser -lLLVMHexagonDesc \
-        -lLLVMHexagonInfo -lLLVMBPFDisassembler -lLLVMBPFCodeGen -lLLVMBPFDesc -lLLVMBPFInfo \
-        -lLLVMBPFAsmPrinter -lLLVMARMDisassembler -lLLVMARMCodeGen -lLLVMARMAsmParser \
-        -lLLVMARMDesc -lLLVMARMInfo -lLLVMARMAsmPrinter -lLLVMAMDGPUDisassembler \
-        -lLLVMAMDGPUCodeGen -lLLVMAMDGPUAsmParser -lLLVMAMDGPUDesc -lLLVMAMDGPUInfo \
-        -lLLVMAMDGPUAsmPrinter -lLLVMAMDGPUUtils -lLLVMAArch64Disassembler -lLLVMAArch64CodeGen \
-        -lLLVMAArch64AsmParser -lLLVMAArch64Desc -lLLVMAArch64Info -lLLVMAArch64AsmPrinter \
-        -lLLVMAArch64Utils -lLLVMObjectYAML -lLLVMLibDriver -lLLVMOption -lLLVMX86Disassembler \
+        -lLLVMObjectYAML -lLLVMLibDriver -lLLVMOption -lLLVMX86Disassembler \
         -lLLVMX86AsmParser -lLLVMX86CodeGen -lLLVMGlobalISel -lLLVMSelectionDAG -lLLVMAsmPrinter \
         -lLLVMDebugInfoCodeView -lLLVMDebugInfoMSF -lLLVMX86Desc -lLLVMMCDisassembler \
         -lLLVMX86Info -lLLVMX86AsmPrinter -lLLVMX86Utils -lLLVMMCJIT -lLLVMLineEditor \
@@ -53,5 +37,5 @@ else
         -ldl -ltinfo -Wl,--as-needed,--export-dynamic -lclangSema -lclangASTMatchers -lclangDriver \
         -lclangDynamicASTMatchers -lclangEdit -lclangFormat -lclangIndex -lclangLex -lclangRewrite \
         -lclangRewriteFrontend -lclangSerialization -lclangTooling -lclangToolingCore \
-        -lclangToolingRefactor -lclangSema -lLTO -lclang -lclangAnalysis
+        -lclangToolingRefactor -lclangSema -lLTO -lclang -lclangAnalysis -lclingMetaProcessor
 fi
