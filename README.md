@@ -10,6 +10,13 @@ Things that you can do easily with tinyspec include:
  - use these synthesizers and effects with DAWs, other synthesizers, etc using JACK
  - do all of this in a live performance (with some caveats)
 
+### Project status ###
+Most things are working, but due to some cling bugs you may run into absurd errors or segfaults sometimes,
+especially when dealing with C++ templates.
+There is a new restructured system in the `events` branch, but it unfortunately suffers even more from these issues due
+to the new code structure. Development is currently paused until the relevant cling bugs are fixed,
+because they make the system virtually unusable for livecoding purposes.
+
 ### What is an overlap-add (re)synthesizer?
 You define a function which is called periodically to process a *frame* of audio.
 The rate at which the function is called, the number of input/output channels,
