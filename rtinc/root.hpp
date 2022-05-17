@@ -1,14 +1,10 @@
 #include <iostream>
 #include <vector>
+#include <string>
+#include <algorithm>
 using namespace std;
 
-namespace internals {
-    extern string client_name;
-    extern double rate;
-}
-
-#define RATE internals::rate
-#define CLIENT_NAME internals::client_name
+#define DISABLE_PTRCHECK __attribute__((annotate("__cling__ptrcheck(off)")))
 
 #include "buffer.hpp"
 #include "control.hpp"
@@ -16,4 +12,5 @@ namespace internals {
 #include "osc.hpp"
 #include "fft.hpp"
 #include "windowfn.hpp"
-#include "pv.hpp"
+//#include "pv.hpp"
+#include "event.hpp"
