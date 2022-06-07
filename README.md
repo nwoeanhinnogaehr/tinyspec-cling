@@ -14,7 +14,7 @@ Things that you can do easily with tinyspec include:
 Most things are working, but due to some cling bugs you may run into absurd errors or segfaults sometimes,
 especially when dealing with C++ templates.
 There is a new restructured system in the `events` branch, but it unfortunately suffers even more from these issues due
-to the new code structure. Development is currently paused until the relevant cling bugs are fixed,
+to the new code structure. Development is currently paused until the relevant cling bugs are fixed (see here: https://github.com/root-project/root/issues/10049),
 because they make the system virtually unusable for livecoding purposes.
 
 ### What is an overlap-add (re)synthesizer?
